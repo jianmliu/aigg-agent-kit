@@ -1,0 +1,16 @@
+# Foundry artifacts
+out/
+cache/
+# Dependencies fetched by `forge install` (re-fetched on CI / fresh clone)
+lib/
+# Broadcast traces include deployer addresses but not keys — committing the
+# /run-latest.json from real deploys is fine and useful for indexing; suppress
+# the dry-run noise.
+broadcast/*/*/dry-run/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+.DS_Store

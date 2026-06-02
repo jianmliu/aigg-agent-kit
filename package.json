@@ -1,0 +1,7 @@
+{
+  "name": "@onchainpal/kit",
+  "version": "0.0.0",
+  "private": true,
+  "description": "AI NPC agent runtime + on-chain economy kit (engine-neutral, reusable). Lives inside onchainpal today; designed to be split into its own repo (git subtree split --prefix=kit) and consumed via git submodule.",
+  "type": "module"
+}

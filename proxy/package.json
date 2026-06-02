@@ -1,0 +1,12 @@
+{
+  "name": "@onchainpal/inference-proxy",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Server-side hop so the browser can drive GCC-consuming NPC inference without holding the ai.gg/sub2api credential. Zero deps; node server.mjs.",
+  "scripts": {
+    "start": "node server.mjs",
+    "smoke": "node smoke.mjs",
+    "smoke:donations": "node donations-smoke.mjs"
+  }
+}

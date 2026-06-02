@@ -1,0 +1,6 @@
+# Standalone workspace for when this kit is cloned as its own repo. Inside the
+# onchainpal monorepo the ROOT pnpm-workspace.yaml is authoritative (it globs
+# kit/packages/* + kit/proxy); this file is used only for standalone clones.
+packages:
+  - "packages/*"
+  - "proxy"

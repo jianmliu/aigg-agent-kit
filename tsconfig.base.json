@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2020", "DOM"],
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@onchainpal/npc-agent": ["packages/npc-agent/src/index.ts"],
+      "@onchainpal/npc-agent/*": ["packages/npc-agent/src/*"],
+      "@onchainpal/onchain": ["packages/onchain/src/index.ts"],
+      "@onchainpal/onchain/*": ["packages/onchain/src/*"]
+    }
+  },
+  "include": ["packages"]
+}
