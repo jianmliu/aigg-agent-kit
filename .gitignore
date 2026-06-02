@@ -1,0 +1,14 @@
+# deps / build artifacts (standalone-clone hygiene)
+node_modules/
+dist/
+out/
+cache/
+# foundry
+contracts/**/out/
+contracts/**/cache/
+contracts/**/lib/
+# env / secrets
+.env
+.env.*
+!.env.example
+.DS_Store
