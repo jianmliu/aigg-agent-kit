@@ -10,6 +10,7 @@ import { createServer } from 'node:http';
 import { GccLedger, InMemoryStore, type InferenceUsage } from '@onchainpal/npc-agent';
 import { AiggWalletClient } from '../aigg-wallet-client';
 import { RemoteAgentWallet } from '../remote-agent-wallet';
+import { RemoteEip3009Settlement } from '../remote-eip3009-settlement';
 import { X402GccEip3009Settlement } from '../x402-gcc-eip3009';
 import { AiggFacilitatorClient } from '../aigg-facilitator-client';
 
@@ -32,6 +33,12 @@ async function main() {
       res.writeHead(200, { 'content-type': 'application/json' });
       if (req.url === '/address') return res.end(JSON.stringify({ address: ADDR, derivationPath: "m/44'/8453'/123'" }));
       if (req.url === '/sign') return res.end(JSON.stringify({ address: ADDR, signature: SIG, digest: '0xdead' }));
+      if (req.url === '/sign/eip3009') return res.end(JSON.stringify({
+        address: ADDR, signature: SIG, digest: '0xdead',
+        payload: { x402Version: 2, accepted: { scheme: 'exact', network: 'eip155:84532', amount: parsed.value, asset: GCC, payTo: SELLER },
+          payload: { signature: SIG, authorization: { from: ADDR, to: SELLER, value: parsed.value, validAfter: '0', validBefore: '1900000000', nonce: '0x' + '11'.repeat(32) } } },
+        requirements: { scheme: 'exact', network: 'eip155:84532', asset: GCC, amount: parsed.value, maxTimeoutSeconds: 300, payTo: SELLER, extra: { name: 'Guaranteed Capacity Credit', version: '1', verifyingContract: GCC } }
+      }));
       res.end('{}');
     });
   });
@@ -74,8 +81,21 @@ async function main() {
   assert.equal(facCalls[0].paymentPayload.payload.signature, SIG, 'facilitator received the wallet-svc signature');
   assert.equal(facCalls[0].paymentPayload.payload.authorization.from, ADDR, 'payer = remote agent EOA');
 
+  // === scoped production path: RemoteEip3009Settlement (svc builds+signs, TS relays) ===
+  facCalls.length = 0;
+  const scoped = new RemoteEip3009Settlement({ wallet: client, facilitator, verifyOnly: true });
+  const r2 = await scoped.settle('npc:azhu', { model: 'aigg', inputTokens: 100, outputTokens: 20, gccCost: 0.0005 });
+  assert.equal(r2.mode, 'x402');
+  assert.ok(r2.receiptId?.startsWith('verify:'), 'scoped settle verified');
+  const sc = calls.find((c) => c.path === '/sign/eip3009')!;
+  assert.equal(sc.body.subject, 'npc:azhu', 'scoped: subject forwarded');
+  assert.equal(sc.body.value, (5n * 10n ** 14n).toString(), 'scoped: gccCost→atoms as decimal string');
+  assert.equal(facCalls[0].paymentPayload.payload.authorization.to, SELLER, 'scoped: recipient locked to payTo (from svc)');
+  assert.equal(facCalls[0].paymentRequirements.asset, GCC, 'scoped: requirements from svc');
+
   svc.close(); fac.close();
   console.log('✓ RemoteAgentWallet: address via /address + sign via /sign (Bearer) + plugs into x402 settlement');
+  console.log('✓ RemoteEip3009Settlement: svc builds+signs scoped payload, TS relays to facilitator (recipient locked)');
   console.log('\nREMOTE-WALLET SMOKE PASSED ✅');
 }
 

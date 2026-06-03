@@ -28,6 +28,23 @@ export interface SignResult {
   digest: `0x${string}`;
 }
 
+export interface Eip3009Params {
+  /** GCC atoms (uint256). */
+  value: bigint;
+  validAfter?: number;
+  validBefore?: number;
+  nonce?: `0x${string}`;
+}
+export interface Eip3009Result {
+  address: `0x${string}`;
+  signature: `0x${string}`;
+  digest: `0x${string}`;
+  /** ready-to-submit x402 v2 PaymentPayload (the service is the source of truth). */
+  payload: unknown;
+  /** matching x402 PaymentRequirements. */
+  requirements: unknown;
+}
+
 export class AiggWalletClient {
   private readonly base: string;
   private readonly token: string;
@@ -47,6 +64,15 @@ export class AiggWalletClient {
 
   async sign(subject: string, typedData: TypedDataPayload): Promise<SignResult> {
     return this.post('/sign', { subject, typedData }) as Promise<SignResult>;
+  }
+
+  /**
+   * Scoped GCC payment signature (production path). The service builds the
+   * EIP-3009 typed data from its fixed config (token/payTo/chain) and signs;
+   * recipient is locked server-side. Returns the ready x402 payload + requirements.
+   */
+  async signEip3009(subject: string, p: Eip3009Params): Promise<Eip3009Result> {
+    return this.post('/sign/eip3009', { subject, ...p }) as Promise<Eip3009Result>;
   }
 
   private async post(path: string, body: unknown): Promise<unknown> {
