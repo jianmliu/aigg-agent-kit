@@ -19,7 +19,8 @@
     "test:settlement": "tsx src/__tests__/x402-gcc-settlement.smoke.ts",
     "test:facilitator": "tsx src/__tests__/x402-facilitator.smoke.ts",
     "verify:facilitator": "tsx src/tools/verify-on-facilitator.ts",
-    "show:tba": "tsx src/tools/show-tba.ts"
+    "show:tba": "tsx src/tools/show-tba.ts",
+    "test:remote": "tsx src/__tests__/remote-wallet.smoke.ts"
   },
   "dependencies": {
     "@onchainpal/npc-agent": "workspace:*",

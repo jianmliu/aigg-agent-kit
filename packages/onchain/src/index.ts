@@ -19,6 +19,12 @@ export type { TbaParams } from './tba';
 export { TbaAgentWallet } from './tba-agent-wallet';
 export type { TbaAgentWalletOptions } from './tba-agent-wallet';
 
+// Remote signer — keys held by the Go wallet-svc (aigg-wallet), not in-process
+export { AiggWalletClient } from './aigg-wallet-client';
+export type { AiggWalletClientOptions, DeriveResult, SignResult } from './aigg-wallet-client';
+export { RemoteAgentWallet } from './remote-agent-wallet';
+export type { RemoteAgentWalletOptions } from './remote-agent-wallet';
+
 // AIGG x402 facilitator client (verify / settle)
 export { AiggFacilitatorClient } from './aigg-facilitator-client';
 export type {
