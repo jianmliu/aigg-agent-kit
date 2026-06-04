@@ -30,6 +30,13 @@ export interface MudStoreOptions {
   client: MudKvClient;
   /** full/fast mirror for reads + non-onchain writes (default InMemoryStore). */
   local?: Store;
+  /**
+   * Read the canonical copy from MUD (the on-chain World) instead of the local
+   * mirror. REQUIRED for a SHARED world: with multiple clients of one World,
+   * each has its own local mirror, so reads must hit the chain to see others'
+   * writes. (Slower — one RPC read per get; add an indexer/cache for prod.)
+   */
+  readThrough?: boolean;
 }
 
 /** Stable string id for a (scope,key) — hashed to bytes32 for the MUD key. */
@@ -43,13 +50,16 @@ export const mudKey = (scope: Scope, key: string): `0x${string}` => keccak256(to
 export class MudStore implements Store {
   private readonly client: MudKvClient;
   private readonly local: Store;
+  private readonly readThrough: boolean;
 
   constructor(opts: MudStoreOptions) {
     this.client = opts.client;
     this.local = opts.local ?? new InMemoryStore();
+    this.readThrough = !!opts.readThrough;
   }
 
   async get<T>(scope: Scope, key: string): Promise<T | null> {
+    if (this.readThrough) return this.getOnchain<T>(scope, key);
     return this.local.get<T>(scope, key);
   }
 

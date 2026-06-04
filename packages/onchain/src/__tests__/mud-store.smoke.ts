@@ -53,7 +53,14 @@ async function main() {
   assert.equal(mudKey(rel, 'affinity'), mudKey(rel, 'affinity'));
   assert.match(mudKey(rel, 'affinity'), /^0x[0-9a-f]{64}$/i);
 
-  console.log('✓ MudStore: onchain subset mirrored to MUD, local full mirror, deterministic keys, delete both');
+  // readThrough: a separate client reads the canonical on-chain copy (shared world)
+  const mud2 = new FakeMud();
+  const writer = new MudStore({ client: mud2 });          // writes (local + MUD)
+  const reader = new MudStore({ client: mud2, readThrough: true }); // its own empty local
+  await writer.set(world, 'shared', { v: 7 }, { onchain: true });
+  assert.deepEqual(await reader.get(world, 'shared'), { v: 7 }, 'readThrough reads the shared MUD copy, not its empty local mirror');
+
+  console.log('✓ MudStore: onchain subset mirrored to MUD, local full mirror, deterministic keys, delete both, readThrough shares');
   console.log('\nMUD-STORE SMOKE PASSED ✅');
 }
 
