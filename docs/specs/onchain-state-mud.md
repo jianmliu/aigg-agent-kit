@@ -64,5 +64,5 @@ defineWorld({ namespace: "onchainpal", tables: {
 5. 文字 MUD/runtime 用 `new MudStore({ client })` 替换 store → 状态实时上链。
 6. 生产可换 Base Sepolia / 主网。
 
-> 现状:`MudStore` + schema + 本 spec 已就绪;`tablegen/deploy` 是一次性工具链活,作为下一步。
+> 现状:`MudStore` + schema + 本 spec 已就绪;**World 已用 mud build/deploy 真部署到本地 anvil(chainId 31337,World `0x0C080e7d6117D2a62D2eeF80632ffA2Eefb3cC87`,6 张 ECS 表全注册)✓**。下一步=实现 MudKvClient 指向该 World,文字 MUD 状态实时上链;生产换 Base Sepolia。
 > demo 仍可用本地 Store 跑;`MudStore` 让"状态上链"成为换 client 的一行。
