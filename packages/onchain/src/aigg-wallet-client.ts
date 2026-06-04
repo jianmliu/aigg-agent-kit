@@ -1,14 +1,36 @@
 /**
  * AiggWalletClient — HTTP client for the Go `wallet-svc` (cmd/wallet-svc in the
- * aigg-wallet repo). Lets the TS kit derive per-subject agent EOA addresses and
- * obtain EIP-712 signatures from a service that holds the key (TEE), so no key
- * material ever lives in the TS process.
+ * aigg-wallet repo). Lets the TS kit derive per-agent EOA addresses and obtain
+ * EIP-712 signatures from a service that holds the key (TEE), so no key material
+ * ever lives in the TS process.
  *
- *   GET  /healthz
- *   POST /address { subject }            → { address, derivationPath }
- *   POST /sign    { subject, typedData } → { address, signature, digest }
+ *   POST /address       <selector>              → { address, derivationPath }
+ *   POST /sign          <selector> + typedData  → { address, signature, digest }
+ *   POST /sign/eip3009  <selector> + value/...  → { address, signature, payload, requirements }
+ *
+ * <selector> is one of (see wallet-svc keySelector):
+ *   - `string`            → { subject } legacy keccak(subject) account (back-compat)
+ *   - `{ owner, agent }`  → structured m/44'/coin'/owner'/agent' (owner=aigg userID,
+ *                           agent=npcIndex) — the one-owner-many-agents model
+ *   - `{ path: number[] }`→ explicit all-hardened path
  */
 import type { TypedDataPayload } from '@onchainpal/npc-agent';
+
+/**
+ * KeySelector mirrors the wallet-svc `keySelector`. A bare string is the legacy
+ * keccak(subject) scheme; `{ owner, agent }` is the structured model (owner =
+ * the aigg-src userID that owns the agents, agent = a stable per-NPC index);
+ * `{ path }` is a fully explicit all-hardened BIP-44 path.
+ */
+export type KeySelector =
+  | string
+  | { owner: number; agent: number }
+  | { path: number[] };
+
+/** Serialize a selector into the wallet-svc request body shape. */
+export function selectorBody(sel: KeySelector): Record<string, unknown> {
+  return typeof sel === 'string' ? { subject: sel } : { ...sel };
+}
 
 export interface AiggWalletClientOptions {
   /** wallet-svc base URL, e.g. http://wallet-svc:8091 (server-side network). */
@@ -58,21 +80,26 @@ export class AiggWalletClient {
     this.fetchImpl = f;
   }
 
-  async address(subject: string): Promise<DeriveResult> {
-    return this.post('/address', { subject }) as Promise<DeriveResult>;
+  /** Resolve an agent EOA address. `sel` is an npcId string (legacy) or a
+   *  structured `{ owner, agent }` / `{ path }` selector. */
+  async address(sel: KeySelector): Promise<DeriveResult> {
+    return this.post('/address', selectorBody(sel)) as Promise<DeriveResult>;
   }
 
-  async sign(subject: string, typedData: TypedDataPayload): Promise<SignResult> {
-    return this.post('/sign', { subject, typedData }) as Promise<SignResult>;
+  async sign(sel: KeySelector, typedData: TypedDataPayload): Promise<SignResult> {
+    return this.post('/sign', { ...selectorBody(sel), typedData }) as Promise<SignResult>;
   }
 
   /**
    * Scoped GCC payment signature (production path). The service builds the
    * EIP-3009 typed data from its fixed config (token/payTo/chain) and signs;
    * recipient is locked server-side. Returns the ready x402 payload + requirements.
+   *
+   * `sel` selects the signing key: an npcId string (legacy keccak) or the
+   * structured `{ owner: aiggUserId, agent: npcIndex }`.
    */
-  async signEip3009(subject: string, p: Eip3009Params): Promise<Eip3009Result> {
-    return this.post('/sign/eip3009', { subject, ...p }) as Promise<Eip3009Result>;
+  async signEip3009(sel: KeySelector, p: Eip3009Params): Promise<Eip3009Result> {
+    return this.post('/sign/eip3009', { ...selectorBody(sel), ...p }) as Promise<Eip3009Result>;
   }
 
   private async post(path: string, body: unknown): Promise<unknown> {
