@@ -24,8 +24,9 @@
  *
  * Run: pnpm --filter @onchainpal/onchain e2e:verify
  */
-import { AiggWalletClient } from '../aigg-wallet-client';
+import { AiggWalletClient, type KeySelector } from '../aigg-wallet-client';
 import { AiggFacilitatorClient } from '../aigg-facilitator-client';
+import { InMemoryNpcIndexRegistry, npcSelector } from '../npc-index-registry';
 
 function need(name: string): string {
   const v = process.env[name];
@@ -52,12 +53,21 @@ async function main() {
   const wallet = new AiggWalletClient({ baseUrl: walletUrl, authToken: need('WALLET_SVC_TOKEN') });
   const facilitator = new AiggFacilitatorClient({ baseUrl: facUrl, authToken: need('FACILITATOR_TOKEN') });
 
+  // Structured one-owner-many-agents selector when AIGG_OWNER_ID is set:
+  // owner = onchainpal's aigg-src userID, agent = a stable per-NPC index.
+  // Falls back to the legacy npcId-string (keccak subject) selector otherwise.
+  const ownerId = Number(envOr('AIGG_OWNER_ID', '0'));
+  const registry = new InMemoryNpcIndexRegistry();
+  const selector: KeySelector = ownerId >= 1 ? npcSelector(ownerId, registry, npcId) : npcId;
+
   console.log(`wallet-svc : ${walletUrl}`);
   console.log(`facilitator: ${facUrl}`);
-  console.log(`NPC=${npcId}  value=${value} atoms (${gccCost} GCC)  mode=${doSettle ? 'SETTLE (on-chain!)' : 'verify-only'}\n`);
+  console.log(
+    `NPC=${npcId}  selector=${JSON.stringify(selector)}  value=${value} atoms (${gccCost} GCC)  mode=${doSettle ? 'SETTLE (on-chain!)' : 'verify-only'}\n`
+  );
 
   // 1) scoped sign via wallet-svc (the service builds the typed data + signs)
-  const signed = await wallet.signEip3009(npcId, { value });
+  const signed = await wallet.signEip3009(selector, { value });
   console.log(`NPC EOA   : ${signed.address}`);
   console.log(`x402 payload:\n${JSON.stringify(signed.payload, null, 2)}\n`);
 

@@ -20,10 +20,14 @@ export { TbaAgentWallet } from './tba-agent-wallet';
 export type { TbaAgentWalletOptions } from './tba-agent-wallet';
 
 // Remote signer — keys held by the Go wallet-svc (aigg-wallet), not in-process
-export { AiggWalletClient } from './aigg-wallet-client';
-export type { AiggWalletClientOptions, DeriveResult, SignResult, Eip3009Params, Eip3009Result } from './aigg-wallet-client';
+export { AiggWalletClient, selectorBody } from './aigg-wallet-client';
+export type { AiggWalletClientOptions, DeriveResult, SignResult, Eip3009Params, Eip3009Result, KeySelector } from './aigg-wallet-client';
 export { RemoteAgentWallet } from './remote-agent-wallet';
 export type { RemoteAgentWalletOptions } from './remote-agent-wallet';
+
+// One-owner-many-agents: stable npcId → collision-free uint32 agent index
+export { InMemoryNpcIndexRegistry, npcSelector } from './npc-index-registry';
+export type { NpcIndexRegistry } from './npc-index-registry';
 export { RemoteEip3009Settlement } from './remote-eip3009-settlement';
 export type { RemoteEip3009SettlementOptions } from './remote-eip3009-settlement';
 

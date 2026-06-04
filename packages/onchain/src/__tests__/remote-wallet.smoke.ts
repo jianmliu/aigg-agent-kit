@@ -46,8 +46,8 @@ async function main() {
   const port = (svc.address() as any).port;
   const client = new AiggWalletClient({ baseUrl: `http://localhost:${port}`, authToken: TOKEN });
 
-  // RemoteAgentWallet fetches its address from /address
-  const wallet = await RemoteAgentWallet.create({ client, subject: 'npc:jiu-jianxian' });
+  // RemoteAgentWallet fetches its address from /address (legacy string selector)
+  const wallet = await RemoteAgentWallet.create({ client, selector: 'npc:jiu-jianxian' });
   assert.equal(wallet.address, ADDR, 'address fetched from wallet-svc /address');
   assert.equal(await wallet.balanceGcc(), null, 'agent EOA holds no funds (scoped model)');
 
@@ -56,7 +56,15 @@ async function main() {
   assert.equal(sig, SIG, 'signature returned from wallet-svc /sign');
   const signCall = calls.find((c) => c.path === '/sign')!;
   assert.equal(signCall.auth, `Bearer ${TOKEN}`, 'Bearer sent');
-  assert.equal(signCall.body.subject, 'npc:jiu-jianxian', 'subject forwarded');
+  assert.equal(signCall.body.subject, 'npc:jiu-jianxian', 'string selector forwarded as { subject }');
+
+  // Structured selector { owner, agent } forwards verbatim (one-owner-many-agents)
+  const structured = await RemoteAgentWallet.create({ client, selector: { owner: 42, agent: 7 } });
+  assert.equal(structured.address, ADDR, 'structured address fetched');
+  const addrCall = calls.filter((c) => c.path === '/address').at(-1)!;
+  assert.equal(addrCall.body.owner, 42, 'structured owner forwarded');
+  assert.equal(addrCall.body.agent, 7, 'structured agent forwarded');
+  assert.equal(addrCall.body.subject, undefined, 'no subject for structured selector');
   assert.ok(signCall.body.typedData?.primaryType === 'Foo', 'typedData forwarded');
 
   // it drops into the existing x402 settlement as the walletFor signer
