@@ -19,7 +19,7 @@ import {
   RelationshipMemory, resolveAddressing, DEFAULT_METABOLISM
 } from '@onchainpal/npc-agent';
 import type {
-  Store, Scope, InferenceProvider, NpcPersona, Actuator, StateDelta, SayOptions, Metabolism, MetabolicDecision
+  Store, Scope, InferenceProvider, NpcPersona, Actuator, StateDelta, SayOptions, Metabolism
 } from '@onchainpal/npc-agent';
 
 const W: Scope = { type: 'world' };
@@ -139,14 +139,15 @@ export class SharedWorld {
     const persona = this.personaFor(rec);
     const relationships = new RelationshipMemory(this.store);
     let balance = await this.balanceGcc(input.npcId);
-    let decision: MetabolicDecision | null = null;
+    let tier = '清醒';
+    let starving = false;
     let cost = 0;
 
     const agent = new LlmAgent({
       persona, provider: this.provider, relationships, metabolism: this.metabolism,
       readBalanceGcc: async () => balance,
       hungerLine: `（${rec.name} 灵力枯竭，无法回应……需要有人为 TA 充值 GCC）`,
-      onMetabolism: (d) => { decision = d; },
+      onMetabolism: (d) => { starving = d.starving; tier = d.starving ? '🥵饥饿' : (d.tier.label ?? d.tier.id); },
       onUsage: (u) => { cost = u.gccCost ?? 0; balance -= cost; }
     });
     const resolver = new EffectResolver(new DefaultGameRules((id) => (id === input.npcId ? persona : undefined)));
@@ -157,14 +158,13 @@ export class SharedWorld {
     if (cost > 0) await this.store.set(W, gccKey(input.npcId), balance, ONCHAIN); // persist the burn on-chain
 
     const rel = await relationships.get(input.npcId, input.visitorId);
-    const tier = decision ? (decision.starving ? '🥵饥饿' : decision.tier.label ?? decision.tier.id) : '清醒';
     return {
       said: res.said,
       affinity: rel.affinity,
       dAffinity: rel.affinity - before,
       addressing: resolveAddressing(persona, rel.affinity),
       tier,
-      starving: !!decision?.starving,
+      starving,
       costGcc: cost,
       balanceGcc: balance
     };
