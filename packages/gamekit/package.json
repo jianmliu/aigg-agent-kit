@@ -10,7 +10,8 @@
   "exports": { ".": { "import": "./src/index.ts", "types": "./src/index.ts" } },
   "scripts": {
     "test:world": "tsx src/__tests__/shared-world.smoke.ts",
-    "test:dsn": "tsx src/__tests__/shared-world-dsn.smoke.ts"
+    "test:dsn": "tsx src/__tests__/shared-world-dsn.smoke.ts",
+    "test:memory": "tsx src/__tests__/shared-world-memory.smoke.ts"
   },
   "dependencies": { "@onchainpal/npc-agent": "workspace:*" },
   "devDependencies": { "@types/node": "^22.8.4", "tsx": "^4.21.0" }
