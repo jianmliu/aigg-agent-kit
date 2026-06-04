@@ -70,6 +70,8 @@ export { InMemoryStore } from './memory/memory-store';
 export { RelationshipMemory } from './memory/relationship';
 export { AutoDriveStore } from './store/auto-drive-store';
 export type { AutoDriveClient, AutoDriveStoreOptions, MemoryHistoryEntry } from './store/auto-drive-store';
+export { TieredStore, durableExceptBalance } from './store/tiered-store';
+export type { TieredStoreOptions, ArchivePredicate } from './store/tiered-store';
 
 // Economy — per-NPC virtual GCC sub-ledger (demo: game funds one AIGG account)
 export { GccLedger } from './economy/gcc-ledger';
