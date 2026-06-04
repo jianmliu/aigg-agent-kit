@@ -27,6 +27,10 @@ export type { RemoteAgentWalletOptions } from './remote-agent-wallet';
 export { RemoteEip3009Settlement } from './remote-eip3009-settlement';
 export type { RemoteEip3009SettlementOptions } from './remote-eip3009-settlement';
 
+// On-chain STATE layer — npc-agent Store backed by Lattice MUD ECS
+export { MudStore, mudKey, scopeKeyId } from './mud-store';
+export type { MudStoreOptions, MudKvClient } from './mud-store';
+
 // Model B — passkey-owned Coinbase Smart Wallet (non-custodial, P3)
 export { CswWalletClient } from './csw-wallet-client';
 export type { CswWalletClientOptions, CswOwner, WebAuthnAssertion, CswAccountResult, CswErc1271Result } from './csw-wallet-client';
