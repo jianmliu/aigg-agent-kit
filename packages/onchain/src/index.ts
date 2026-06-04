@@ -27,6 +27,12 @@ export type { RemoteAgentWalletOptions } from './remote-agent-wallet';
 export { RemoteEip3009Settlement } from './remote-eip3009-settlement';
 export type { RemoteEip3009SettlementOptions } from './remote-eip3009-settlement';
 
+// Model B — passkey-owned Coinbase Smart Wallet (non-custodial, P3)
+export { CswWalletClient } from './csw-wallet-client';
+export type { CswWalletClientOptions, CswOwner, WebAuthnAssertion, CswAccountResult, CswErc1271Result } from './csw-wallet-client';
+export { CswAgentWallet } from './csw-agent-wallet';
+export type { CswAgentWalletOptions, PasskeySigner } from './csw-agent-wallet';
+
 // AIGG x402 facilitator client (verify / settle)
 export { AiggFacilitatorClient } from './aigg-facilitator-client';
 export type {

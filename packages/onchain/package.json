@@ -21,7 +21,8 @@
     "verify:facilitator": "tsx src/tools/verify-on-facilitator.ts",
     "show:tba": "tsx src/tools/show-tba.ts",
     "test:remote": "tsx src/__tests__/remote-wallet.smoke.ts",
-    "e2e:verify": "tsx src/tools/e2e-verify.ts"
+    "e2e:verify": "tsx src/tools/e2e-verify.ts",
+    "test:csw": "tsx src/__tests__/csw.smoke.ts"
   },
   "dependencies": {
     "@onchainpal/npc-agent": "workspace:*",
