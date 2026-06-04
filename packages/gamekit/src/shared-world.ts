@@ -21,6 +21,7 @@ import {
 import type {
   Store, Scope, InferenceProvider, NpcPersona, Actuator, StateDelta, SayOptions, Metabolism
 } from '@onchainpal/npc-agent';
+import type { AiggMemoryClient } from '@onchainpal/npc-agent';
 
 const W: Scope = { type: 'world' };
 const ONCHAIN = { onchain: true } as const;
@@ -57,18 +58,30 @@ export interface SharedWorldOptions {
   provider: InferenceProvider;
   metabolism?: Metabolism;
   rooms?: string[];
+  /**
+   * Optional typed-memory client (agentmf serve /memory/*). When present:
+   *   - talk() fires a fire-and-forget observe() after each conversation
+   *   - talk() calls select() before the LLM to inject relevant semantic /
+   *     episodic memory into the NPC's persona (context bundle)
+   *   - talk() triggers consolidate(write:true) when the NPC's metabolism tier
+   *     is "充盈" (rich) — offline Dream pass, promotes episodic→semantic
+   * Without a memory client the behaviour is identical to before (no-op).
+   */
+  memory?: AiggMemoryClient;
 }
 
 export class SharedWorld {
   private readonly store: Store;
   private readonly provider: InferenceProvider;
   private readonly metabolism: Metabolism;
+  private readonly memory?: AiggMemoryClient;
   readonly rooms: string[];
 
   constructor(opts: SharedWorldOptions) {
     this.store = opts.store;
     this.provider = opts.provider;
     this.metabolism = opts.metabolism ?? DEFAULT_METABOLISM;
+    this.memory = opts.memory;
     this.rooms = opts.rooms ?? ['广场', '酒馆', '集市'];
   }
 
@@ -118,10 +131,19 @@ export class SharedWorld {
   async npcsInRoom(room: string): Promise<NpcSummary[]> { return (await this.listNpcs()).filter((n) => n.room === room); }
 
   // --- interaction ---------------------------------------------------------
-  private personaFor(rec: NpcRecord): NpcPersona {
+  /**
+   * corpus and evidence paths for a given NPC — used by the memory client.
+   * Layout: npcs/<npcId>/memory/ + npcs/<npcId>/evidence.jsonl so every NPC
+   * gets its own isolated typed-memory corpus.
+   */
+  private memoryCorpus(npcId: string): string { return `npcs/${npcId}/memory`; }
+  private memoryEvidence(npcId: string): string { return `npcs/${npcId}/evidence.jsonl`; }
+
+  private personaFor(rec: NpcRecord, memoryBundle?: string): NpcPersona {
+    const role = [rec.background || rec.name, memoryBundle].filter(Boolean).join('\n\n');
     return {
       id: rec.id, name: rec.name,
-      role: rec.background || `${rec.name}`,
+      role,
       allowedEffects: ['adjustRelationship', 'setFlag'],
       caps: { relationshipDeltaPerTurn: 15 },
       addressing: [
@@ -136,18 +158,38 @@ export class SharedWorld {
   async talk(input: { npcId: string; visitorId: string; text: string }): Promise<TalkResult> {
     const rec = await this.getNpc(input.npcId);
     if (!rec) throw new Error(`no npc ${input.npcId}`);
-    const persona = this.personaFor(rec);
+
+    // --- memory: select relevant units before LLM call (online, cheap) -------
+    let memoryBundle: string | undefined;
+    if (this.memory) {
+      try {
+        const sel = await this.memory.select(
+          `${input.visitorId} ${input.text}`,
+          { corpus: this.memoryCorpus(input.npcId), n_best: 4, kinds: ['semantic', 'episodic'] }
+        );
+        if (sel.bundle.trim()) memoryBundle = `【记忆】\n${sel.bundle.trim()}`;
+      } catch { /* memory service down — degrade gracefully */ }
+    }
+
+    const persona = this.personaFor(rec, memoryBundle);
     const relationships = new RelationshipMemory(this.store);
     let balance = await this.balanceGcc(input.npcId);
     let tier = '清醒';
     let starving = false;
     let cost = 0;
+    let richTier = false;
 
     const agent = new LlmAgent({
       persona, provider: this.provider, relationships, metabolism: this.metabolism,
       readBalanceGcc: async () => balance,
       hungerLine: `（${rec.name} 灵力枯竭，无法回应……需要有人为 TA 充值 GCC）`,
-      onMetabolism: (d) => { starving = d.starving; tier = d.starving ? '🥵饥饿' : (d.tier.label ?? d.tier.id); },
+      onMetabolism: (d) => {
+        starving = d.starving;
+        tier = d.starving ? '🥵饥饿' : (d.tier.label ?? d.tier.id);
+        // "充盈" = labelled '充盈' or the first non-starving tier the metabolism
+        // returns (highest minBalanceGcc threshold met) — rich enough for Dream.
+        richTier = !d.starving && (d.tier.label === '充盈' || d.tier.id === 'r');
+      },
       onUsage: (u) => { cost = u.gccCost ?? 0; balance -= cost; }
     });
     const resolver = new EffectResolver(new DefaultGameRules((id) => (id === input.npcId ? persona : undefined)));
@@ -158,7 +200,7 @@ export class SharedWorld {
     if (cost > 0) await this.store.set(W, gccKey(input.npcId), balance, ONCHAIN); // persist the burn on-chain
 
     const rel = await relationships.get(input.npcId, input.visitorId);
-    return {
+    const result: TalkResult = {
       said: res.said,
       affinity: rel.affinity,
       dAffinity: rel.affinity - before,
@@ -168,5 +210,28 @@ export class SharedWorld {
       costGcc: cost,
       balanceGcc: balance
     };
+
+    // --- memory: observe this interaction (fire-and-forget, never blocks) ----
+    if (this.memory && !starving) {
+      const corpus = this.memoryCorpus(input.npcId);
+      const evidence = this.memoryEvidence(input.npcId);
+      const obsPayload = {
+        slug: input.visitorId.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_'),
+        name: input.visitorId,
+        kind: 'episodic' as const,
+        description: `${input.visitorId} 与 ${rec.name} 的互动：好感 ${rel.affinity}（+${result.dAffinity}）`,
+        match: [input.visitorId, rec.name, '好感', 'affinity', 'relationship'],
+        body: `「${input.text}」→ 好感 ${rel.affinity}，${rec.name} 回应：「${res.said ?? '…'}」`,
+      };
+      // fire-and-forget: errors are logged, never thrown
+      this.memory.observe(obsPayload, { corpus, evidence }).catch(() => {});
+
+      // --- memory: Dream consolidation when NPC is "充盈" (rich tier) --------
+      if (richTier) {
+        this.memory.consolidate({ corpus, evidence, write: true }).catch(() => {});
+      }
+    }
+
+    return result;
   }
 }
