@@ -18,6 +18,9 @@
       "@onchainpal/npc-agent/*": ["packages/npc-agent/src/*"],
       "@onchainpal/onchain": ["packages/onchain/src/index.ts"],
       "@onchainpal/onchain/*": ["packages/onchain/src/*"]
+,
+      "@onchainpal/gamekit": ["packages/gamekit/src/index.ts"],
+      "@onchainpal/gamekit/*": ["packages/gamekit/src/*"]
     }
   },
   "include": ["packages"]
