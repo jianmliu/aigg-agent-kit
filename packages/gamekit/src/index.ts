@@ -32,7 +32,7 @@ export type { MerchantMenuOptions } from './aigg/merchant-menu';
 export { AiggExecClient, AiggExecError } from './aigg/aigg-exec-client';
 export type {
   AiggExecClientOptions, ExecOptions, ExecRequest, ExecResponse,
-  TopupGccResponse, BuyGccCcaResponse, ExecResponseBase,
+  TopupGccResponse, BuyGccCcaResponse, TransferGccResponse, ExecResponseBase,
 } from './aigg/aigg-exec-client';
 export { DEMO_PLANS, ERC8257_TIERS } from './aigg/static-plans';
 export type { DemoPlan } from './aigg/static-plans';

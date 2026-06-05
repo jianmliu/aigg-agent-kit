@@ -19,7 +19,7 @@
 /** Common fields every exec response carries. */
 export interface ExecResponseBase {
   /** Echo of action + params for menu rendering. */
-  action: 'topup_gcc' | 'buy_gcc_cca';
+  action: 'topup_gcc' | 'buy_gcc_cca' | 'transfer_gcc';
   /** When true, the body is a preview (no on-chain side effect). */
   dry_run: boolean;
   /** Idempotency key, server-echoed (auto-generated when omitted by caller). */
@@ -54,12 +54,27 @@ export interface BuyGccCcaResponse extends ExecResponseBase {
   tx_hash?: `0x${string}`;
 }
 
-export type ExecResponse = TopupGccResponse | BuyGccCcaResponse;
+/**
+ * Body returned for action=transfer_gcc — agent-to-agent GCC transfer used
+ * by the mud-server paid-tell flow (`tell <player> <amount> <text>`).
+ */
+export interface TransferGccResponse extends ExecResponseBase {
+  action: 'transfer_gcc';
+  to_address: `0x${string}`;
+  amount_gcc: string;
+  /** On-chain tx hash, only when dry_run=false. */
+  tx_hash?: `0x${string}`;
+  /** Sender's new GCC balance after settle, only when dry_run=false. */
+  sender_balance_after?: string;
+}
+
+export type ExecResponse = TopupGccResponse | BuyGccCcaResponse | TransferGccResponse;
 
 /** Discriminated input shape — keeps each action's params strongly-typed. */
 export type ExecRequest =
   | { action: 'topup_gcc'; params: { usdc_amount: string; asset?: 'USDC' } }
-  | { action: 'buy_gcc_cca'; params: { currency_amount: string; max_price_usdc_per_gcc: string } };
+  | { action: 'buy_gcc_cca'; params: { currency_amount: string; max_price_usdc_per_gcc: string } }
+  | { action: 'transfer_gcc'; params: { to_address: `0x${string}`; amount_gcc: string; memo?: string } };
 
 export interface ExecOptions {
   /** Default: true. Set false ONLY after a player confirmed the preview. */
