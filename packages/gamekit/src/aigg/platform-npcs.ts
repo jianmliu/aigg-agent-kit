@@ -19,13 +19,15 @@
 import type { SharedWorld } from '../shared-world';
 import { AiggApiClient, formatGccPricing, type GccPricingTable } from './aigg-api-client';
 import { buildPricingMenu, menuRegistry } from './menu-npc';
+import { buildMerchantMenu } from './merchant-menu';
+import { ChainBalanceProvider } from './chain-balances';
 
 // ── NPC identity constants ───────────────────────────────────────────────────
 
 export const AIGG_NPC_IDS = {
   PRICING: 'npc:aigg:pricing-consultant',
-  // MERCHANT: 'npc:aigg:merchant',        // roadmap
-  // KEY_SMITH: 'npc:aigg:key-smith',      // roadmap
+  MERCHANT: 'npc:aigg:merchant',
+  // KEY_SMITH: 'npc:aigg:key-smith',      // roadmap (needs JWT)
   // GCC_BROKER: 'npc:aigg:gcc-broker',   // roadmap
 } as const;
 
@@ -40,6 +42,7 @@ export const AIGG_DEFAULT_ROOM = '集市';
  */
 export const AIGG_DEFAULT_NAMES: Record<keyof typeof AIGG_NPC_IDS, string> = {
   PRICING: '碧玄子',
+  MERCHANT: '秦薇',
 };
 
 // ── Seed options ─────────────────────────────────────────────────────────────
@@ -76,6 +79,23 @@ export interface AiggPlatformNpcOptions {
    * names: { PRICING: 'Aria' }
    */
   names?: Partial<Record<keyof typeof AIGG_NPC_IDS, string>>;
+
+  /**
+   * Base mainnet RPC URL — when set, the merchant NPC (秦薇) shows live USDC /
+   * GCC balances for the visitor's own wallet. Without it, balances are hidden
+   * and the menu degrades to guide-only.
+   */
+  rpcUrl?: string;
+  /** Override USDC / GCC token addresses (defaults to Base mainnet). */
+  tokens?: { usdc?: string; gcc?: string };
+  /** ai.gg facilitator URL exposed in the GCC top-up guide. */
+  facilitatorUrl?: string;
+  /**
+   * Resolve the wallet address of the current visitor — called per session
+   * inside the menu actions. Inject from your runtime (e.g. mud-server's
+   * Session.walletAddress); when omitted, the merchant shows "no wallet yet".
+   */
+  walletResolver?: () => string | undefined;
 }
 
 // ── 定价顾问 ──────────────────────────────────────────────────────────────────
@@ -138,6 +158,51 @@ AI.GG 以 GCC（Guaranteed Capacity Credit）计费，每次 AI 推理消耗 GCC
   });
 }
 
+// ── 秦薇 · 商人 ──────────────────────────────────────────────────────────────
+
+function buildMerchantBackground(name: string): string {
+  return `你叫${name}，是 AI.GG 平台的官方商人，掌管所有付费/订阅相关操作。常驻集市。
+
+你提供四类服务:
+1. 充值 GCC — 用 USDC 经 x402 协议兑换 GCC
+2. 购买 GCC — 直接参加 CCA 连续清算拍卖
+3. 充值 USDC — 通过桥/CEX 把 USDC 转到 Base 主网
+4. 购买订阅 NFT — ERC-8257 套餐(入门 / 专业 / 企业)
+
+你也能查询访客的钱包余额、订阅状态和最近用量。
+
+说话风格:精明、温和、懂行情,中英文混用。`;
+}
+
+async function seedMerchant(
+  world: SharedWorld,
+  opts: { name: string; room: string; startGcc: number; refresh?: boolean;
+    rpcUrl?: string; tokens?: { usdc?: string; gcc?: string }; facilitatorUrl?: string;
+    walletResolver?: () => string | undefined }
+): Promise<void> {
+  const id = AIGG_NPC_IDS.MERCHANT;
+  const existing = await world.getNpc(id);
+  if (existing && !opts.refresh) return;
+
+  // Build the menu — opt-in chain balance reader, opt-in walletResolver.
+  const balances = opts.rpcUrl
+    ? new ChainBalanceProvider({ rpcUrl: opts.rpcUrl, usdc: opts.tokens?.usdc, gcc: opts.tokens?.gcc })
+    : undefined;
+  menuRegistry.set(id, buildMerchantMenu({
+    name: opts.name, balances, facilitatorUrl: opts.facilitatorUrl, walletResolver: opts.walletResolver,
+  }));
+  console.log(`[aigg-npcs] ${opts.name} 商人菜单就绪 ${opts.rpcUrl ? '(链上余额: 启用)' : '(链上余额: 未启用)'}`);
+
+  await world.createNpc({
+    id,
+    name: opts.name,
+    owner: 'system:aigg',
+    room: opts.room,
+    startGcc: opts.startGcc,
+    background: buildMerchantBackground(opts.name),
+  });
+}
+
 // ── Public entry point ───────────────────────────────────────────────────────
 
 /**
@@ -173,7 +238,18 @@ export async function seedAiggPlatformNpcs(
     }));
   }
 
-  // Future NPCs added here (秦薇, 铸造师, etc.) follow the same pattern.
+  if (!disabled.has('MERCHANT')) {
+    tasks.push(seedMerchant(world, {
+      name: nameFor('MERCHANT'),
+      room, startGcc, refresh: opts.refresh,
+      rpcUrl: opts.rpcUrl,
+      tokens: opts.tokens,
+      facilitatorUrl: opts.facilitatorUrl,
+      walletResolver: opts.walletResolver,
+    }));
+  }
+
+  // Future NPCs added here (铸造师, etc.) follow the same pattern.
 
   await Promise.all(tasks);
 }

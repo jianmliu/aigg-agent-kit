@@ -23,3 +23,13 @@ export type { AiggApiClientOptions, GccPricingTable, ModelGccPricing } from './a
 // Menu NPC primitives (extend to build custom menu NPCs for your game)
 export { menuRegistry, buildPricingMenu, renderMenu } from './aigg/menu-npc';
 export type { MenuNode, MenuAction, MenuState, MenuStepResult } from './aigg/menu-npc';
+
+// Merchant NPC (秦薇) — pay/subscribe one-stop
+export { buildMerchantMenu } from './aigg/merchant-menu';
+export type { MerchantMenuOptions } from './aigg/merchant-menu';
+export { DEMO_PLANS, ERC8257_TIERS } from './aigg/static-plans';
+export type { DemoPlan } from './aigg/static-plans';
+
+// Zero-dep on-chain balance reader (ERC-20 balanceOf)
+export { ChainBalanceProvider, BASE_USDC, BASE_GCC, BASE_ERC8257_TOOL_REGISTRY } from './aigg/chain-balances';
+export type { ChainBalanceProviderOptions, TokenBalance } from './aigg/chain-balances';
