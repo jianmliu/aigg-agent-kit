@@ -21,6 +21,7 @@ import { AiggApiClient, formatGccPricing, type GccPricingTable } from './aigg-ap
 import { buildPricingMenu, menuRegistry } from './menu-npc';
 import { buildMerchantMenu } from './merchant-menu';
 import { ChainBalanceProvider } from './chain-balances';
+import type { AiggExecClient } from './aigg-exec-client';
 
 // ── NPC identity constants ───────────────────────────────────────────────────
 
@@ -96,6 +97,23 @@ export interface AiggPlatformNpcOptions {
    * Session.walletAddress); when omitted, the merchant shows "no wallet yet".
    */
   walletResolver?: () => string | undefined;
+
+  // ── Phase 2a: exec-onchain real-tx pipeline (秦薇 [2]/[3]) ──────────────
+  /** ai.gg exec-onchain HTTP client. Required for the real-tx confirm flow. */
+  execClient?: AiggExecClient;
+  /**
+   * Resolves the current visitor's ai.gg API key (Phase 1 SECRET). The menu
+   * pulls it just-in-time when sending exec — host runtime keeps the secret
+   * inside its per-session storage.
+   */
+  apiKeyResolver?: () => string | undefined;
+  /**
+   * Master switch for the real-tx path (default false). Even when execClient
+   * and apiKeyResolver are wired, [2]/[3] stay guide-only unless this is true.
+   * Threaded straight through to the merchant — make sure the host validates
+   * its env (e.g. EXECUTE_ONCHAIN=1) before flipping it.
+   */
+  executeOnchain?: boolean;
 }
 
 // ── 定价顾问 ──────────────────────────────────────────────────────────────────
@@ -178,20 +196,28 @@ async function seedMerchant(
   world: SharedWorld,
   opts: { name: string; room: string; startGcc: number; refresh?: boolean;
     rpcUrl?: string; tokens?: { usdc?: string; gcc?: string }; facilitatorUrl?: string;
-    walletResolver?: () => string | undefined }
+    walletResolver?: () => string | undefined;
+    execClient?: AiggExecClient; apiKeyResolver?: () => string | undefined; executeOnchain?: boolean }
 ): Promise<void> {
   const id = AIGG_NPC_IDS.MERCHANT;
   const existing = await world.getNpc(id);
   if (existing && !opts.refresh) return;
 
-  // Build the menu — opt-in chain balance reader, opt-in walletResolver.
+  // Build the menu — opt-in chain balance reader, opt-in walletResolver,
+  // opt-in real-tx exec pipeline ([2]/[3] confirm flow).
   const balances = opts.rpcUrl
     ? new ChainBalanceProvider({ rpcUrl: opts.rpcUrl, usdc: opts.tokens?.usdc, gcc: opts.tokens?.gcc })
     : undefined;
   menuRegistry.set(id, buildMerchantMenu({
-    name: opts.name, balances, facilitatorUrl: opts.facilitatorUrl, walletResolver: opts.walletResolver,
+    name: opts.name, balances,
+    facilitatorUrl: opts.facilitatorUrl, walletResolver: opts.walletResolver,
+    execClient: opts.execClient, apiKeyResolver: opts.apiKeyResolver, executeOnchain: opts.executeOnchain,
   }));
-  console.log(`[aigg-npcs] ${opts.name} 商人菜单就绪 ${opts.rpcUrl ? '(链上余额: 启用)' : '(链上余额: 未启用)'}`);
+  console.log(
+    `[aigg-npcs] ${opts.name} 商人菜单就绪 `
+    + `${opts.rpcUrl ? '(链上余额: 启用)' : '(链上余额: 未启用)'}`
+    + `${opts.executeOnchain && opts.execClient ? ' (真上链 [2][3]: 启用)' : ''}`,
+  );
 
   await world.createNpc({
     id,
@@ -245,6 +271,9 @@ export async function seedAiggPlatformNpcs(
       rpcUrl: opts.rpcUrl,
       tokens: opts.tokens,
       facilitatorUrl: opts.facilitatorUrl,
+      execClient: opts.execClient,
+      apiKeyResolver: opts.apiKeyResolver,
+      executeOnchain: opts.executeOnchain,
       walletResolver: opts.walletResolver,
     }));
   }

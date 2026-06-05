@@ -16,6 +16,7 @@ import type { MenuNode, MenuStepResult } from './menu-npc';
 import type { ChainBalanceProvider } from './chain-balances';
 import { BASE_USDC, BASE_GCC } from './chain-balances';
 import { DEMO_PLANS, ERC8257_TIERS, type DemoPlan } from './static-plans';
+import { AiggExecError, type AiggExecClient, type TopupGccResponse, type BuyGccCcaResponse } from './aigg-exec-client';
 
 const LINE = '─'.repeat(40);
 
@@ -32,6 +33,28 @@ export interface MerchantMenuOptions {
   toolRegistryAddress?: string;
   /** When given, the menu shows the visitor's own wallet (resolved per session). */
   walletResolver?: () => string | undefined;
+
+  // ── Phase 2a: confirm-flow real-tx pipeline ──────────────────────────────
+  /**
+   * ai.gg exec-onchain client. When present, the merchant CAN route [2]/[3]
+   * through a real-tx flow (amount → preview → confirm → settle). Absent
+   * (or when any of the other Phase 2a knobs below is missing), [2]/[3]
+   * fall back to the guide-only views — fully backwards compatible.
+   */
+  execClient?: AiggExecClient;
+  /**
+   * Resolves the current visitor's ai.gg API key (the SECRET captured in the
+   * Phase 1 handshake). The merchant never sees the key directly; it pulls
+   * it just-in-time when sending the exec request.
+   */
+  apiKeyResolver?: () => string | undefined;
+  /**
+   * Master switch for the real-tx path. Defaults to `false`. Even when
+   * execClient + apiKeyResolver are both wired, [2]/[3] stay guide-only
+   * unless the host explicitly opts in (e.g. EXECUTE_ONCHAIN=1 env on
+   * mud-server). This makes accidental rollouts impossible.
+   */
+  executeOnchain?: boolean;
 }
 
 const DEFAULT_FACILITATOR = 'https://facilitator.ai.gg';
@@ -164,6 +187,212 @@ function planTierIndex(p: DemoPlan): number {
   return p.tier === 'starter' ? 1 : p.tier === 'pro' ? 2 : 3;
 }
 
+// ── Phase 2a:exec-onchain confirm flows ──────────────────────────────────
+// Each action runs as a 3-step state machine routed through MenuStepResult's
+// `prompt` + `handler` fields:
+//
+//   step 1: ask for amount(s)
+//   step 2: call exec(dry_run:true) → preview screen → ask y/n
+//   step 3: y → call exec(dry_run:false) with same idempotency_key → tx_hash
+//           n → cancel
+//
+// `idempotency_key` is captured from the dry-run response and re-sent on the
+// settle call so retries (rare but possible if a Ctrl-C happens between
+// preview and confirm) coalesce safely.
+//
+// Errors are humanised — AiggExecError.message goes straight to the player,
+// while NETWORK_ERROR is mapped to "网络故障,请稍后再试" to avoid leaking
+// internal hostnames or stack frames.
+
+/** True only when every Phase 2a knob is present AND opt-in flag is on. */
+function execReady(opts: MerchantMenuOptions): boolean {
+  return !!(opts.executeOnchain && opts.execClient && opts.apiKeyResolver?.());
+}
+
+function humaniseExecError(e: unknown): string {
+  if (e instanceof AiggExecError) {
+    if (e.code === 'NETWORK_ERROR') return '网络故障,请稍后再试';
+    return `${e.message}${e.code ? ` (${e.code})` : ''}`;
+  }
+  return e instanceof Error ? e.message : 'exec failed';
+}
+
+/** Parse a positive decimal amount; reject empty / NaN / ≤0 / >1M (sanity cap). */
+function parseAmount(input: string): number | null {
+  const n = parseFloat(input.trim());
+  if (!isFinite(n) || n <= 0 || n > 1_000_000) return null;
+  return n;
+}
+
+// ── [2] 充值 GCC confirm flow ────────────────────────────────────────────────
+function topupGccFlow(opts: MerchantMenuOptions): MenuStepResult {
+  return {
+    output: [
+      '\x1b[1m充值 GCC(USDC → GCC)\x1b[0m', LINE,
+      '我会用你的 ai.gg agent EOA 经 x402 facilitator settle 上链。',
+      '',
+    ],
+    prompt: '请输入要充值的 USDC 金额(例: 10):',
+    handler: topupGccAmountHandler(opts),
+  };
+}
+
+function topupGccAmountHandler(opts: MerchantMenuOptions): (input: string) => Promise<MenuStepResult> {
+  return async (input) => {
+    const amount = parseAmount(input);
+    if (amount === null) {
+      return {
+        output: ['金额格式不对(必须是 0 < n ≤ 1,000,000 的数字)。再试一次:'],
+        prompt: '请输入 USDC 金额:',
+        handler: topupGccAmountHandler(opts),
+      };
+    }
+    const apiKey = opts.apiKeyResolver?.();
+    if (!apiKey) return { output: ['身份缺失 — 请重连时带 SECRET:sk-aigg-...'] };
+    try {
+      const preview = await opts.execClient!.exec(apiKey,
+        { action: 'topup_gcc', params: { usdc_amount: String(amount) } },
+        { dryRun: true }) as TopupGccResponse;
+      return {
+        output: [
+          '\x1b[1m准备充值 — 预览\x1b[0m', LINE,
+          `  支付:   ${preview.usdc_amount} USDC`,
+          `  获得:   ~${preview.estimated_gcc_credit} GCC (估算)`,
+          '',
+          `  ${preview.human_summary}`,
+          '',
+          '\x1b[33m[y] 确认上链(扣 USDC,不可逆)  [n] 取消\x1b[0m',
+        ],
+        prompt: 'y / n:',
+        handler: topupGccConfirmHandler(opts, preview.idempotency_key, amount),
+      };
+    } catch (e) {
+      return { output: [`预览失败: ${humaniseExecError(e)}`] };
+    }
+  };
+}
+
+function topupGccConfirmHandler(
+  opts: MerchantMenuOptions, idempotencyKey: string, amount: number,
+): (input: string) => Promise<MenuStepResult> {
+  return async (input) => {
+    const v = input.trim().toLowerCase();
+    if (v === 'n' || v === 'no' || v === 'cancel' || v === '取消') {
+      return { output: ['已取消,未上链。'] };
+    }
+    if (v !== 'y' && v !== 'yes' && v !== 'confirm' && v !== '确认') {
+      return {
+        output: ['请输入 y(确认上链)或 n(取消):'],
+        prompt: 'y / n:',
+        handler: topupGccConfirmHandler(opts, idempotencyKey, amount),
+      };
+    }
+    const apiKey = opts.apiKeyResolver?.();
+    if (!apiKey) return { output: ['身份过期,请重连'] };
+    try {
+      const res = await opts.execClient!.exec(apiKey,
+        { action: 'topup_gcc', params: { usdc_amount: String(amount) } },
+        { dryRun: false, idempotencyKey }) as TopupGccResponse;
+      return {
+        output: [
+          '\x1b[32m✓ 充值成功\x1b[0m', LINE,
+          `  tx:      ${res.settlement_tx_hash ?? '(无)'}`,
+          `  到账:    ${res.usdc_amount} USDC → ${res.credited_gcc_balance ?? '?'} GCC`,
+          `  ${res.human_summary}`,
+        ],
+      };
+    } catch (e) {
+      return { output: [`\x1b[31m✗ 充值失败:\x1b[0m ${humaniseExecError(e)}`] };
+    }
+  };
+}
+
+// ── [3] CCA 出价 confirm flow ────────────────────────────────────────────────
+function buyGccCcaFlow(opts: MerchantMenuOptions): MenuStepResult {
+  return {
+    output: [
+      '\x1b[1m购买 GCC — CCA 拍卖出价\x1b[0m', LINE,
+      'CCA = Continuous Clearing Auction;你给 USDC 上限 + 单价上限,合约按当前 spot 撮合。',
+      '',
+    ],
+    prompt: '请输入两个数,用空格分:<USDC 金额> <每 GCC 接受最高 USDC>  (例: 5 0.05)',
+    handler: buyGccCcaInputHandler(opts),
+  };
+}
+
+function buyGccCcaInputHandler(opts: MerchantMenuOptions): (input: string) => Promise<MenuStepResult> {
+  return async (input) => {
+    const parts = input.trim().split(/\s+/);
+    const currency = parseAmount(parts[0] ?? '');
+    const maxPrice = parseAmount(parts[1] ?? '');
+    if (currency === null || maxPrice === null) {
+      return {
+        output: ['格式: <USDC 金额> <每 GCC 最高 USDC>  例: 5 0.05'],
+        prompt: '重输:',
+        handler: buyGccCcaInputHandler(opts),
+      };
+    }
+    const apiKey = opts.apiKeyResolver?.();
+    if (!apiKey) return { output: ['身份缺失 — 请重连时带 SECRET:sk-aigg-...'] };
+    try {
+      const preview = await opts.execClient!.exec(apiKey,
+        { action: 'buy_gcc_cca', params: { currency_amount: String(currency), max_price_usdc_per_gcc: String(maxPrice) } },
+        { dryRun: true }) as BuyGccCcaResponse;
+      return {
+        output: [
+          '\x1b[1m准备出价 — 预览\x1b[0m', LINE,
+          `  上限:   ${preview.currency_amount} USDC`,
+          `  单价:   ≤ ${preview.max_price_usdc_per_gcc} USDC/GCC`,
+          `  最多获得: ~${preview.estimated_gcc_if_filled} GCC`,
+          '',
+          `  ${preview.human_summary}`,
+          '',
+          '\x1b[33m[y] 确认上链  [n] 取消\x1b[0m',
+        ],
+        prompt: 'y / n:',
+        handler: buyGccCcaConfirmHandler(opts, preview.idempotency_key, currency, maxPrice),
+      };
+    } catch (e) {
+      return { output: [`预览失败: ${humaniseExecError(e)}`] };
+    }
+  };
+}
+
+function buyGccCcaConfirmHandler(
+  opts: MerchantMenuOptions, idempotencyKey: string, currency: number, maxPrice: number,
+): (input: string) => Promise<MenuStepResult> {
+  return async (input) => {
+    const v = input.trim().toLowerCase();
+    if (v === 'n' || v === 'no' || v === 'cancel' || v === '取消') {
+      return { output: ['已取消,未上链。'] };
+    }
+    if (v !== 'y' && v !== 'yes' && v !== 'confirm' && v !== '确认') {
+      return {
+        output: ['请输入 y(确认)或 n(取消):'],
+        prompt: 'y / n:',
+        handler: buyGccCcaConfirmHandler(opts, idempotencyKey, currency, maxPrice),
+      };
+    }
+    const apiKey = opts.apiKeyResolver?.();
+    if (!apiKey) return { output: ['身份过期,请重连'] };
+    try {
+      const res = await opts.execClient!.exec(apiKey,
+        { action: 'buy_gcc_cca', params: { currency_amount: String(currency), max_price_usdc_per_gcc: String(maxPrice) } },
+        { dryRun: false, idempotencyKey }) as BuyGccCcaResponse;
+      return {
+        output: [
+          '\x1b[32m✓ 出价已上链\x1b[0m', LINE,
+          `  bid_id:  ${res.bid_id ?? '?'}`,
+          `  tx:      ${res.tx_hash ?? '(无)'}`,
+          `  ${res.human_summary}`,
+        ],
+      };
+    } catch (e) {
+      return { output: [`\x1b[31m✗ 出价失败:\x1b[0m ${humaniseExecError(e)}`] };
+    }
+  };
+}
+
 // ── 主菜单 ──────────────────────────────────────────────────────────────────
 export function buildMerchantMenu(opts: MerchantMenuOptions = {}): MenuNode {
   const name = opts.name ?? '秦薇';
@@ -175,12 +404,18 @@ export function buildMerchantMenu(opts: MerchantMenuOptions = {}): MenuNode {
       run: async (): Promise<MenuStepResult> => ({ output: await buildAccountView(opts) }),
     },
     {
-      key: '2', label: '充值 GCC(USDC → GCC,x402)',
-      run: async (): Promise<MenuStepResult> => ({ output: buildTopUpGccView(opts) }),
+      key: '2',
+      // Label switches to a real-tx hint when the exec pipeline is fully wired,
+      // so the player knows they're about to send a real on-chain action.
+      label: execReady(opts) ? '充值 GCC(真上链,USDC → GCC)' : '充值 GCC(USDC → GCC,x402)',
+      run: async (): Promise<MenuStepResult> =>
+        execReady(opts) ? topupGccFlow(opts) : ({ output: buildTopUpGccView(opts) }),
     },
     {
-      key: '3', label: '购买 GCC(CCA 拍卖)',
-      run: async (): Promise<MenuStepResult> => ({ output: buildBuyGccView(opts) }),
+      key: '3',
+      label: execReady(opts) ? '购买 GCC(真出价,CCA 拍卖)' : '购买 GCC(CCA 拍卖)',
+      run: async (): Promise<MenuStepResult> =>
+        execReady(opts) ? buyGccCcaFlow(opts) : ({ output: buildBuyGccView(opts) }),
     },
     {
       key: '4', label: '充值 USDC(桥到 Base)',

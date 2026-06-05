@@ -27,6 +27,13 @@ export type { MenuNode, MenuAction, MenuState, MenuStepResult } from './aigg/men
 // Merchant NPC (秦薇) — pay/subscribe one-stop
 export { buildMerchantMenu } from './aigg/merchant-menu';
 export type { MerchantMenuOptions } from './aigg/merchant-menu';
+
+// ai.gg exec-onchain client (Phase 2a — real-tx pipeline for merchant [2]/[3])
+export { AiggExecClient, AiggExecError } from './aigg/aigg-exec-client';
+export type {
+  AiggExecClientOptions, ExecOptions, ExecRequest, ExecResponse,
+  TopupGccResponse, BuyGccCcaResponse, ExecResponseBase,
+} from './aigg/aigg-exec-client';
 export { DEMO_PLANS, ERC8257_TIERS } from './aigg/static-plans';
 export type { DemoPlan } from './aigg/static-plans';
 
