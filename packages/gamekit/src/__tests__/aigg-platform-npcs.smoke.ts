@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import * as http from 'node:http';
 import { InMemoryStore, Metabolism, type InferenceProvider, type InferenceRequest, type InferenceResult } from '@onchainpal/npc-agent';
-import { SharedWorld, seedAiggPlatformNpcs, AiggApiClient, menuRegistry, AIGG_NPC_IDS, AIGG_PLATFORM_NPC_IDS, AIGG_DEFAULT_ROOM } from '../index';
+import { SharedWorld, seedAiggPlatformNpcs, AiggApiClient, menuRegistry, AIGG_NPC_IDS, AIGG_PLATFORM_NPC_IDS, AIGG_DEFAULT_ROOM, AIGG_DEFAULT_NAMES } from '../index';
 
 // ── Fake ai.gg ───────────────────────────────────────────────────────────────
 function startFakeAigg(): Promise<{ port: number; calls: string[]; close(): void }> {
@@ -79,12 +79,16 @@ async function main() {
     assert.equal(fake.calls.filter(c => c === '/api/v1/pricing/gcc').length, 1, 'idempotent: still 1 call');
     console.log('  ✓ idempotent: second seedAiggPlatformNpcs() skips existing NPCs');
 
-    // ── 4. custom room ────────────────────────────────────────────────────
+    // ── 4. custom room + custom name ─────────────────────────────────────
     const gameC = new SharedWorld({ store: new InMemoryStore(), provider: new ScriptedProvider(), metabolism, rooms: ['村口', '城内', '驿站'] });
-    await seedAiggPlatformNpcs(gameC, { apiClient: client, room: '驿站' });
+    await seedAiggPlatformNpcs(gameC, { apiClient: client, room: '驿站', names: { PRICING: '账房先生' } });
     const npcC = await gameC.getNpc(AIGG_NPC_IDS.PRICING);
     assert.equal(npcC!.room, '驿站', 'custom room respected');
-    console.log('  ✓ custom room (驿站) respected');
+    assert.equal(npcC!.name, '账房先生', 'custom name respected');
+    // menu title also uses custom name
+    const menuC = menuRegistry.get(AIGG_NPC_IDS.PRICING)!;
+    assert.match(menuC.title, /账房先生/, 'menu title uses custom name');
+    console.log('  ✓ custom room (驿站) + custom name (账房先生) respected in NPC + menu title');
 
     // ── 5. npcsInRoom from any client ────────────────────────────────────
     const inRoom = await gameB.npcsInRoom('集市');
@@ -92,9 +96,10 @@ async function main() {
     assert.equal(inRoom[0].name, '碧玄子');
     console.log('  ✓ 碧玄子 visible in npcsInRoom(集市)');
 
-    // ── 6. AIGG_PLATFORM_NPC_IDS constant ────────────────────────────────
+    // ── 6. AIGG_PLATFORM_NPC_IDS + AIGG_DEFAULT_NAMES ────────────────────
     assert.ok(AIGG_PLATFORM_NPC_IDS.includes(AIGG_NPC_IDS.PRICING));
-    console.log(`  ✓ AIGG_PLATFORM_NPC_IDS has ${AIGG_PLATFORM_NPC_IDS.length} entry(ies)`);
+    assert.equal(AIGG_DEFAULT_NAMES.PRICING, '碧玄子', 'default name is 碧玄子');
+    console.log(`  ✓ AIGG_PLATFORM_NPC_IDS has ${AIGG_PLATFORM_NPC_IDS.length} entry(ies); default name = ${AIGG_DEFAULT_NAMES.PRICING}`);
 
     // ── 7. menu cost calculator (pure arithmetic, no LLM) ────────────────
     const calcAction = menu.actions.find(a => a.label.includes('估算'))!;

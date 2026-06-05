@@ -13,7 +13,7 @@ export type { SharedWorldOptions, NpcRecord, NpcSummary, TalkResult } from './sh
 // ── AIGG platform NPCs ───────────────────────────────────────────────────────
 // One call seeds all platform-level NPCs into any SharedWorld.
 // Games on ai.gg call: seedAiggPlatformNpcs(world).catch(console.warn)
-export { seedAiggPlatformNpcs, AIGG_NPC_IDS, AIGG_PLATFORM_NPC_IDS, AIGG_DEFAULT_ROOM } from './aigg/platform-npcs';
+export { seedAiggPlatformNpcs, AIGG_NPC_IDS, AIGG_PLATFORM_NPC_IDS, AIGG_DEFAULT_ROOM, AIGG_DEFAULT_NAMES } from './aigg/platform-npcs';
 export type { AiggPlatformNpcOptions } from './aigg/platform-npcs';
 
 // ai.gg API client (public endpoints, no auth required for pricing)

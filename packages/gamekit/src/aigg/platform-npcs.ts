@@ -9,7 +9,7 @@
  * menuRegistry for direct menu interaction.
  *
  * Current roster:
- *   碧玄子 — 定价顾问   GET /api/v1/pricing/gcc (public)
+ *   碧玄子 (default) — 定价顾问   GET /api/v1/pricing/gcc (public)
  *
  * Roadmap:
  *   秦薇   — 商人        GET /api/v1/payment/plans  → x402 top-up (public+auth)
@@ -32,6 +32,16 @@ export const AIGG_NPC_IDS = {
 /** Default room for platform NPCs. Games can override via SeedOptions.room. */
 export const AIGG_DEFAULT_ROOM = '集市';
 
+/**
+ * Default NPC names (used when the game doesn't supply a custom name).
+ * Override any of these via `names` in AiggPlatformNpcOptions — useful when
+ * the NPC should fit a different setting (e.g. "Merlin" in a fantasy game,
+ * "账房先生" in a period drama, "Aria" in a sci-fi world).
+ */
+export const AIGG_DEFAULT_NAMES: Record<keyof typeof AIGG_NPC_IDS, string> = {
+  PRICING: '碧玄子',
+};
+
 // ── Seed options ─────────────────────────────────────────────────────────────
 
 export interface AiggPlatformNpcOptions {
@@ -51,12 +61,27 @@ export interface AiggPlatformNpcOptions {
   refresh?: boolean;
   /** Disable individual NPCs. Default: all enabled. */
   disable?: Array<keyof typeof AIGG_NPC_IDS>;
+  /**
+   * Override NPC names to fit your game's world and tone.
+   * Unspecified entries fall back to AIGG_DEFAULT_NAMES.
+   *
+   * @example
+   * // A Western-themed game:
+   * names: { PRICING: 'Doc Ledger' }
+   *
+   * // A period Chinese drama:
+   * names: { PRICING: '账房先生' }
+   *
+   * // An English sci-fi game:
+   * names: { PRICING: 'Aria' }
+   */
+  names?: Partial<Record<keyof typeof AIGG_NPC_IDS, string>>;
 }
 
-// ── 碧玄子 · 定价顾问 ────────────────────────────────────────────────────────
+// ── 定价顾问 ──────────────────────────────────────────────────────────────────
 
-function buildPricingBackground(table: GccPricingTable, fetchedAt: Date): string {
-  return `你叫碧玄子，是 AI.GG 平台的官方定价顾问，常驻集市。你对 AI.GG 平台上每一个模型的定价了如指掌。
+function buildPricingBackground(name: string, table: GccPricingTable, fetchedAt: Date): string {
+  return `你叫${name}，是 AI.GG 平台的官方定价顾问。你对 AI.GG 平台上每一个模型的定价了如指掌。
 
 AI.GG 以 GCC（Guaranteed Capacity Credit，保证算力积分）计费：
 - GCC 是链上 ERC-20 代币（Base 主网），代表经过拍卖保证的算力额度
@@ -78,9 +103,10 @@ ${formatGccPricing(table)}
 async function seedPricingConsultant(
   world: SharedWorld,
   client: AiggApiClient,
-  opts: { room: string; startGcc: number; refresh?: boolean }
+  opts: { name: string; room: string; startGcc: number; refresh?: boolean }
 ): Promise<void> {
   const id = AIGG_NPC_IDS.PRICING;
+  const { name } = opts;
 
   // idempotent: skip if already seeded unless refresh requested
   const existing = await world.getNpc(id);
@@ -89,23 +115,22 @@ async function seedPricingConsultant(
   let background: string;
   try {
     const table = await client.getGccPricing();
-    background = buildPricingBackground(table, new Date());
-    // also build/refresh the menu
-    menuRegistry.set(id, buildPricingMenu(table));
-    console.log(`[aigg-npcs] 碧玄子 定价数据已加载 (${Object.keys(table).length} 个模型)`);
+    background = buildPricingBackground(name, table, new Date());
+    // build/refresh the menu — title uses the customised name
+    menuRegistry.set(id, buildPricingMenu(table, name));
+    console.log(`[aigg-npcs] ${name} 定价数据已加载 (${Object.keys(table).length} 个模型)`);
   } catch (e) {
     console.warn(`[aigg-npcs] 无法获取实时定价，使用离线背景: ${e}`);
-    background = `你叫碧玄子，是 AI.GG 平台的官方定价顾问，常驻集市。
+    background = `你叫${name}，是 AI.GG 平台的官方定价顾问。
 AI.GG 以 GCC（Guaranteed Capacity Credit）计费，每次 AI 推理消耗 GCC。
 详细定价可在 https://ai.gg/pricing 查看，或向我询问具体模型。
 （注意：当前离线状态，定价数据可能不是最新。）`;
-    // build fallback menu from empty table (will show empty lists)
-    if (!menuRegistry.has(id)) menuRegistry.set(id, buildPricingMenu({}));
+    if (!menuRegistry.has(id)) menuRegistry.set(id, buildPricingMenu({}, name));
   }
 
   await world.createNpc({
     id,
-    name: '碧玄子',
+    name,
     owner: 'system:aigg',
     room: opts.room,
     startGcc: opts.startGcc,
@@ -118,14 +143,15 @@ AI.GG 以 GCC（Guaranteed Capacity Credit）计费，每次 AI 推理消耗 GCC
 /**
  * Seed all enabled AIGG platform NPCs into a SharedWorld.
  *
- * Call once at game startup (fire-and-forget safe):
- *
  * ```ts
+ * // default names (碧玄子, ...)
  * seedAiggPlatformNpcs(world).catch(console.warn);
- * ```
  *
- * Every NPC is idempotent (skips if already present) and degrades gracefully
- * if the ai.gg API is unreachable (fallback background, empty menus).
+ * // custom names for your game world
+ * seedAiggPlatformNpcs(world, {
+ *   names: { PRICING: '账房先生' },
+ * }).catch(console.warn);
+ * ```
  */
 export async function seedAiggPlatformNpcs(
   world: SharedWorld,
@@ -135,11 +161,16 @@ export async function seedAiggPlatformNpcs(
   const room = opts.room ?? AIGG_DEFAULT_ROOM;
   const startGcc = opts.startGcc ?? 10;
   const disabled = new Set(opts.disable ?? []);
+  const nameFor = (key: keyof typeof AIGG_NPC_IDS) =>
+    opts.names?.[key] ?? AIGG_DEFAULT_NAMES[key];
 
   const tasks: Array<Promise<void>> = [];
 
   if (!disabled.has('PRICING')) {
-    tasks.push(seedPricingConsultant(world, client, { room, startGcc, refresh: opts.refresh }));
+    tasks.push(seedPricingConsultant(world, client, {
+      name: nameFor('PRICING'),
+      room, startGcc, refresh: opts.refresh,
+    }));
   }
 
   // Future NPCs added here (秦薇, 铸造师, etc.) follow the same pattern.
@@ -147,5 +178,5 @@ export async function seedAiggPlatformNpcs(
   await Promise.all(tasks);
 }
 
-/** All NPC IDs that are managed by the platform (for caller reference). */
+/** All NPC IDs managed by the platform (for caller reference). */
 export const AIGG_PLATFORM_NPC_IDS: readonly string[] = Object.values(AIGG_NPC_IDS);

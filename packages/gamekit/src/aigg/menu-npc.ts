@@ -97,9 +97,9 @@ function formatModelLine(model: string, p: ModelGccPricing): string {
 
 import type { ModelGccPricing } from './aigg-api-client';
 
-function calcMenu(table: GccPricingTable, parent: () => MenuNode): MenuNode {
+function calcMenu(table: GccPricingTable, name: string, parent: () => MenuNode): MenuNode {
   return {
-    title: '碧玄子 · 估算费用',
+    title: `${name} · 估算费用`,
     body: [
       '请直接输入: 模型名 输入token数 输出token数',
       '示例: claude-haiku-4-5 1000000 200000',
@@ -107,25 +107,30 @@ function calcMenu(table: GccPricingTable, parent: () => MenuNode): MenuNode {
     ],
     actions: [
       { key: 'back', label: '返回', run: async () => ({ output: [], next: parent() }) },
-      { key: '0',    label: '告辞', run: async () => ({ output: ['碧玄子: 慢走，有缘再会！'], exit: true }) },
+      { key: '0',    label: '告辞', run: async () => ({ output: [`${name}: 慢走，有缘再会！`], exit: true }) },
     ],
   };
 }
 
-function providerMenu(table: GccPricingTable, providerName: string, parent: () => MenuNode): MenuNode {
+function providerMenu(table: GccPricingTable, name: string, providerName: string, parent: () => MenuNode): MenuNode {
   const models = Object.entries(table).filter(([m]) => providerOf(m) === providerName);
   models.sort((a, b) => a[0].localeCompare(b[0]));
   return {
-    title: `碧玄子 · ${providerName} 定价`,
+    title: `${name} · ${providerName} 定价`,
     body: models.map(([m, p]) => formatModelLine(m, p)),
     actions: [
       { key: 'back', label: '返回', run: async () => ({ output: [], next: parent() }) },
-      { key: '0',    label: '告辞', run: async () => ({ output: ['碧玄子: 慢走，有缘再会！'], exit: true }) },
+      { key: '0',    label: '告辞', run: async () => ({ output: [`${name}: 慢走，有缘再会！`], exit: true }) },
     ],
   };
 }
 
-export function buildPricingMenu(table: GccPricingTable): MenuNode {
+/**
+ * Build the pricing menu tree for a named NPC.
+ * @param table  GCC pricing table from ai.gg
+ * @param name   NPC name shown in menu titles and farewell messages. Default '碧玄子'.
+ */
+export function buildPricingMenu(table: GccPricingTable, name = '碧玄子'): MenuNode {
   // gather providers that have at least one model
   const presentProviders = [...new Set(Object.keys(table).map(providerOf))].sort();
 
@@ -153,7 +158,7 @@ export function buildPricingMenu(table: GccPricingTable): MenuNode {
     const capProv = prov;
     actions.push({
       key: k, label: `${capProv} 系列（${count} 款）`,
-      run: async () => ({ output: [], next: providerMenu(table, capProv, () => mainMenu) }),
+      run: async () => ({ output: [], next: providerMenu(table, name, capProv, () => mainMenu) }),
     });
   }
 
@@ -163,7 +168,7 @@ export function buildPricingMenu(table: GccPricingTable): MenuNode {
     key: estimateKey, label: '估算费用（模型 + token 数 → GCC）',
     run: async () => ({
       output: [],
-      next: calcMenu(table, () => mainMenu),
+      next: calcMenu(table, name, () => mainMenu),
       // switch to free-text input mode
       prompt: '请输入 <模型名> <输入量> <输出量>，例: claude-haiku-4-5 1m 200k',
       handler: async (input: string) => {
@@ -200,9 +205,9 @@ export function buildPricingMenu(table: GccPricingTable): MenuNode {
   });
 
   // farewell
-  actions.push({ key: '0', label: '告辞', run: async () => ({ output: ['碧玄子: 慢走，有缘再会！'], exit: true }) });
+  actions.push({ key: '0', label: '告辞', run: async () => ({ output: [`${name}: 慢走，有缘再会！`], exit: true }) });
 
-  mainMenu = { title: '碧玄子 · 定价顾问', actions };
+  mainMenu = { title: `${name} · 定价顾问`, actions };
   return mainMenu;
 }
 
