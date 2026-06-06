@@ -22,6 +22,8 @@ import type {
   Store, Scope, InferenceProvider, NpcPersona, Actuator, StateDelta, SayOptions, Metabolism
 } from '@onchainpal/npc-agent';
 import type { AiggMemoryClient } from '@onchainpal/npc-agent';
+import { LocalLedgerActivator, ActivationError } from './aigg/activation';
+import type { Activator } from './aigg/activation';
 
 const W: Scope = { type: 'world' };
 const ONCHAIN = { onchain: true } as const;
@@ -35,8 +37,14 @@ export interface NpcRecord {
   owner: string;     // user who created it
   room: string;      // public area it's stationed in
   background: string; // free text → persona role
+  /**
+   * Lifecycle. 'draft' = created but never funded → RAM-only, no formal record,
+   * dies on restart, visible only to its owner. 'active' = funded at least once
+   * → persisted, globally visible. Absent on legacy records ⇒ treated as active.
+   */
+  status?: 'draft' | 'active';
 }
-export interface NpcSummary { id: string; name: string; room: string; owner: string; balanceGcc: number }
+export interface NpcSummary { id: string; name: string; room: string; owner: string; balanceGcc: number; draft?: boolean }
 export interface TalkResult {
   said: string | null;
   affinity: number;
@@ -68,6 +76,18 @@ export interface SharedWorldOptions {
    * Without a memory client the behaviour is identical to before (no-op).
    */
   memory?: AiggMemoryClient;
+  /**
+   * Activation seam — invoked on a draft NPC's first GCC top-up to decide
+   * whether it becomes a permanent, persisted entity. Defaults to
+   * LocalLedgerActivator (records + approves, no chain). PR-B swaps in an
+   * on-chain activator (mint NFT + TBA + real GCC transfer) with no other change.
+   */
+  activator?: Activator;
+  /**
+   * Minimum GCC a top-up must carry to activate a draft (anti-dust). Top-ups
+   * below this leave the NPC a draft. Default 0.001.
+   */
+  minActivationGcc?: number;
 }
 
 export class SharedWorld {
@@ -75,6 +95,14 @@ export class SharedWorld {
   private readonly provider: InferenceProvider;
   private readonly metabolism: Metabolism;
   private readonly memory?: AiggMemoryClient;
+  private readonly activator: Activator;
+  private readonly minActivationGcc: number;
+  /**
+   * Draft NPCs — created but never funded. RAM-only by design: no store write,
+   * so they vanish on restart and never appear in the persisted registry. Keyed
+   * by npc id. Promoted to the store (and removed from here) on first funding.
+   */
+  private readonly draftNpcs = new Map<string, NpcRecord>();
   readonly rooms: string[];
 
   constructor(opts: SharedWorldOptions) {
@@ -82,32 +110,78 @@ export class SharedWorld {
     this.provider = opts.provider;
     this.metabolism = opts.metabolism ?? DEFAULT_METABOLISM;
     this.memory = opts.memory;
+    this.activator = opts.activator ?? new LocalLedgerActivator();
+    this.minActivationGcc = opts.minActivationGcc ?? 0.001;
     this.rooms = opts.rooms ?? ['广场', '酒馆', '集市'];
   }
 
   // --- authoring -----------------------------------------------------------
-  /** Create + place an AI NPC from a free-text background, optionally pre-funded. */
-  async createNpc(input: { name: string; owner: string; background: string; room?: string; startGcc?: number; id?: string }): Promise<string> {
+  /**
+   * Create + place an AI NPC from a free-text background.
+   *
+   * - `draft: true` (player `create`): RAM-only DRAFT — no store write, no
+   *   registry entry, invisible to others, dies on restart. Becomes permanent
+   *   only on its first GCC top-up (→ activate()). `startGcc` is ignored.
+   * - default (platform seeding, pre-funded NPCs): persisted + active
+   *   immediately, exactly as before. Backwards-compatible.
+   */
+  async createNpc(input: { name: string; owner: string; background: string; room?: string; startGcc?: number; id?: string; draft?: boolean }): Promise<string> {
     const id = input.id ?? `npc:${input.name}:${input.owner}`;
     const room = input.room && this.rooms.includes(input.room) ? input.room : this.rooms[0];
-    const rec: NpcRecord = { id, name: input.name, owner: input.owner, room, background: input.background.trim() };
+    if (input.draft) {
+      const rec: NpcRecord = { id, name: input.name, owner: input.owner, room, background: input.background.trim(), status: 'draft' };
+      this.draftNpcs.set(id, rec);
+      return id;
+    }
+    const rec: NpcRecord = { id, name: input.name, owner: input.owner, room, background: input.background.trim(), status: 'active' };
     await this.store.set(W, npcKey(id), rec, ONCHAIN);
     await this.store.set(W, gccKey(id), input.startGcc ?? 0, ONCHAIN);
-    const reg = (await this.store.get<string[]>(W, REGISTRY)) ?? [];
-    if (!reg.includes(id)) { reg.push(id); await this.store.set(W, REGISTRY, reg, ONCHAIN); }
+    await this.addToRegistry(id);
     return id;
   }
 
+  /**
+   * Activate a draft NPC via its first GCC top-up: run the activation seam, and
+   * on success persist the record + balance + registry membership and flip it
+   * to 'active'. Returns the activation result (txHash/tba when on-chain). A
+   * top-up below minActivationGcc, or an activator rejection, leaves it a draft.
+   */
+  async activate(npcId: string, amountGcc: number, opts: { apiKey?: string } = {}) {
+    const draft = this.draftNpcs.get(npcId);
+    if (!draft) return { ok: false as const, reason: 'not_a_draft' };
+    if (amountGcc < this.minActivationGcc) return { ok: false as const, reason: 'insufficient_gcc' };
+    const res = await this.activator.activate({ npcId, owner: draft.owner, amountGcc, apiKey: opts.apiKey });
+    if (!res.ok) return res;
+    const rec: NpcRecord = { ...draft, status: 'active' };
+    await this.store.set(W, npcKey(npcId), rec, ONCHAIN);
+    await this.store.set(W, gccKey(npcId), amountGcc, ONCHAIN);
+    await this.addToRegistry(npcId);
+    this.draftNpcs.delete(npcId);
+    return res;
+  }
+
   /** Owner top-up (same mechanism as a patron donation). */
-  async fund(npcId: string, gcc: number): Promise<number> { return this.addGcc(npcId, gcc); }
-  /** Anyone can sponsor an NPC's mind. */
-  async donate(_donor: string, npcId: string, gcc: number): Promise<number> { return this.addGcc(npcId, gcc); }
+  async fund(npcId: string, gcc: number, opts: { apiKey?: string } = {}): Promise<number> { return this.addGccOrActivate(npcId, gcc, opts); }
+  /** Anyone can sponsor an NPC's mind. First top-up of a draft activates it. */
+  async donate(_donor: string, npcId: string, gcc: number, opts: { apiKey?: string } = {}): Promise<number> { return this.addGccOrActivate(npcId, gcc, opts); }
 
   async place(npcId: string, room: string): Promise<void> {
-    const rec = await this.getNpc(npcId);
-    if (!rec) throw new Error(`no npc ${npcId}`);
     if (!this.rooms.includes(room)) throw new Error(`no room ${room}`);
+    const draft = this.draftNpcs.get(npcId);
+    if (draft) { this.draftNpcs.set(npcId, { ...draft, room }); return; } // move stays in RAM
+    const rec = await this.store.get<NpcRecord>(W, npcKey(npcId));
+    if (!rec) throw new Error(`no npc ${npcId}`);
     await this.store.set(W, npcKey(npcId), { ...rec, room }, ONCHAIN);
+  }
+
+  /** Route a top-up: a draft's first qualifying top-up activates it; else add. */
+  private async addGccOrActivate(npcId: string, gcc: number, opts: { apiKey?: string }): Promise<number> {
+    if (this.draftNpcs.has(npcId)) {
+      const res = await this.activate(npcId, gcc, opts);
+      if (!res.ok) throw new ActivationError(res.reason ?? 'activation_failed');
+      return this.balanceGcc(npcId);
+    }
+    return this.addGcc(npcId, gcc);
   }
 
   private async addGcc(npcId: string, gcc: number): Promise<number> {
@@ -116,19 +190,36 @@ export class SharedWorld {
     return bal;
   }
 
+  private async addToRegistry(id: string): Promise<void> {
+    const reg = (await this.store.get<string[]>(W, REGISTRY)) ?? [];
+    if (!reg.includes(id)) { reg.push(id); await this.store.set(W, REGISTRY, reg, ONCHAIN); }
+  }
+
   // --- discovery -----------------------------------------------------------
-  async getNpc(npcId: string): Promise<NpcRecord | null> { return this.store.get<NpcRecord>(W, npcKey(npcId)); }
+  /** Resolve an NPC by id — persisted records first, then RAM drafts. */
+  async getNpc(npcId: string): Promise<NpcRecord | null> {
+    return (await this.store.get<NpcRecord>(W, npcKey(npcId))) ?? this.draftNpcs.get(npcId) ?? null;
+  }
   async balanceGcc(npcId: string): Promise<number> { return (await this.store.get<number>(W, gccKey(npcId))) ?? 0; }
-  async listNpcs(): Promise<NpcSummary[]> {
+  /**
+   * List NPCs. Persisted (activated) NPCs are visible to everyone; RAM drafts
+   * are visible ONLY to their owner (pass `viewerId`). No viewer → activated only.
+   */
+  async listNpcs(viewerId?: string): Promise<NpcSummary[]> {
     const reg = (await this.store.get<string[]>(W, REGISTRY)) ?? [];
     const out: NpcSummary[] = [];
     for (const id of reg) {
       const r = await this.getNpc(id);
       if (r) out.push({ id, name: r.name, room: r.room, owner: r.owner, balanceGcc: await this.balanceGcc(id) });
     }
+    if (viewerId) {
+      for (const r of this.draftNpcs.values()) {
+        if (r.owner === viewerId) out.push({ id: r.id, name: r.name, room: r.room, owner: r.owner, balanceGcc: 0, draft: true });
+      }
+    }
     return out;
   }
-  async npcsInRoom(room: string): Promise<NpcSummary[]> { return (await this.listNpcs()).filter((n) => n.room === room); }
+  async npcsInRoom(room: string, viewerId?: string): Promise<NpcSummary[]> { return (await this.listNpcs(viewerId)).filter((n) => n.room === room); }
 
   // --- interaction ---------------------------------------------------------
   /**

@@ -91,10 +91,12 @@ async function main() {
     console.log('  ✓ custom room (驿站) + custom name (账房先生) respected in NPC + menu title');
 
     // ── 5. npcsInRoom from any client ────────────────────────────────────
+    // The default seed places all platform NPCs (碧玄子 pricing + 秦薇 merchant)
+    // in 集市, so assert 碧玄子 is among them rather than hard-counting (robust
+    // to future platform NPC additions).
     const inRoom = await gameB.npcsInRoom('集市');
-    assert.equal(inRoom.length, 1);
-    assert.equal(inRoom[0].name, '碧玄子');
-    console.log('  ✓ 碧玄子 visible in npcsInRoom(集市)');
+    assert.ok(inRoom.some((n) => n.name === '碧玄子'), '碧玄子 visible in npcsInRoom(集市)');
+    console.log(`  ✓ 碧玄子 visible in npcsInRoom(集市) (${inRoom.length} platform NPCs there)`);
 
     // ── 6. AIGG_PLATFORM_NPC_IDS + AIGG_DEFAULT_NAMES ────────────────────
     assert.ok(AIGG_PLATFORM_NPC_IDS.includes(AIGG_NPC_IDS.PRICING));

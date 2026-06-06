@@ -10,6 +10,10 @@
 export { SharedWorld } from './shared-world';
 export type { SharedWorldOptions, NpcRecord, NpcSummary, TalkResult } from './shared-world';
 
+// Activation seam — first GCC top-up activates a draft NPC into a permanent entity.
+export { LocalLedgerActivator, ActivationError } from './aigg/activation';
+export type { Activator, ActivationInput, ActivationResult, ActivationLedgerEntry } from './aigg/activation';
+
 // ── AIGG platform NPCs ───────────────────────────────────────────────────────
 // One call seeds all platform-level NPCs into any SharedWorld.
 // Games on ai.gg call: seedAiggPlatformNpcs(world).catch(console.warn)
