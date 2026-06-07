@@ -19,7 +19,8 @@ import {
   RelationshipMemory, resolveAddressing, DEFAULT_METABOLISM
 } from '@onchainpal/npc-agent';
 import type {
-  Store, Scope, InferenceProvider, NpcPersona, Actuator, StateDelta, SayOptions, Metabolism
+  Store, Scope, InferenceProvider, NpcPersona, Actuator, StateDelta, SayOptions, Metabolism,
+  SettlementStrategy, SettlementResult, InferenceUsage
 } from '@onchainpal/npc-agent';
 import type { AiggMemoryClient } from '@onchainpal/npc-agent';
 import { LocalLedgerActivator, ActivationError } from './aigg/activation';
@@ -54,11 +55,30 @@ export interface TalkResult {
   starving: boolean;
   costGcc: number;
   balanceGcc: number;
+  /**
+   * Per-turn GCC settlement of the NPC's thinking via the injected
+   * SettlementStrategy (x402 facilitator nanopayment when configured). `ok:false`
+   * means the nanopayment was attempted but rejected/failed — the conversation
+   * still proceeds (the inference already ran); the attempt is surfaced, not fatal.
+   */
+  settlement?: { mode: string; receiptId?: string; ok: boolean };
 }
 
 class NoopActuator implements Actuator {
   async say(_n: string, _l: string, _o?: SayOptions): Promise<void> {}
   async apply(_d: StateDelta): Promise<void> {}
+}
+
+/**
+ * OnchainBalanceProvider — reads an NPC's GCC balance from its on-chain wallet
+ * (ERC-6551 TBA). The "读(balance)" rail: donations land real GCC in the TBA,
+ * so balanceOf(TBA) is the canonical, globally-consistent balance — any server
+ * reading the chain sees the same number (a second server shows the NPC active,
+ * not 沉睡). Returns null when the NPC has no on-chain wallet yet (e.g. a demo
+ * NPC never minted) → SharedWorld falls back to the local store meter.
+ */
+export interface OnchainBalanceProvider {
+  balanceGcc(npcId: string): Promise<number | null>;
 }
 
 export interface SharedWorldOptions {
@@ -88,6 +108,22 @@ export interface SharedWorldOptions {
    * below this leave the NPC a draft. Default 0.001.
    */
   minActivationGcc?: number;
+  /**
+   * Per-turn GCC settlement for the NPC's thinking. When set, talk() calls
+   * settle(npcId, usage) after each inference — the "耗(thinking burn)" rail.
+   * Inject X402GccEip3009Settlement (x402 facilitator nanopayment: per-turn
+   * EIP-3009 sign → /verify off-chain, /settle batched) so the burn is globally
+   * accounted at the shared facilitator without a tx per turn. Unset → no
+   * settlement (the local balance meter is the only record, as before).
+   */
+  settlement?: SettlementStrategy;
+  /**
+   * On-chain GCC balance source (the "读" rail). When set, balanceGcc(npcId)
+   * returns the NPC's TBA balanceOf() — globally consistent across servers —
+   * falling back to the local store meter only when the provider returns null
+   * (NPC has no on-chain wallet yet). Unset → local store meter only (demo).
+   */
+  balances?: OnchainBalanceProvider;
 }
 
 export class SharedWorld {
@@ -97,6 +133,8 @@ export class SharedWorld {
   private readonly memory?: AiggMemoryClient;
   private readonly activator: Activator;
   private readonly minActivationGcc: number;
+  private readonly settlement?: SettlementStrategy;
+  private readonly balances?: OnchainBalanceProvider;
   /**
    * Draft NPCs — created but never funded. RAM-only by design: no store write,
    * so they vanish on restart and never appear in the persisted registry. Keyed
@@ -112,6 +150,8 @@ export class SharedWorld {
     this.memory = opts.memory;
     this.activator = opts.activator ?? new LocalLedgerActivator();
     this.minActivationGcc = opts.minActivationGcc ?? 0.001;
+    this.settlement = opts.settlement;
+    this.balances = opts.balances;
     this.rooms = opts.rooms ?? ['广场', '酒馆', '集市'];
   }
 
@@ -200,7 +240,16 @@ export class SharedWorld {
   async getNpc(npcId: string): Promise<NpcRecord | null> {
     return (await this.store.get<NpcRecord>(W, npcKey(npcId))) ?? this.draftNpcs.get(npcId) ?? null;
   }
-  async balanceGcc(npcId: string): Promise<number> { return (await this.store.get<number>(W, gccKey(npcId))) ?? 0; }
+  async balanceGcc(npcId: string): Promise<number> {
+    // 读 rail: prefer the on-chain TBA balance (globally consistent across
+    // servers) when a provider is set and the NPC has an on-chain wallet;
+    // otherwise fall back to the local store meter (demo / not-yet-minted).
+    if (this.balances) {
+      const onchain = await this.balances.balanceGcc(npcId);
+      if (onchain !== null) return onchain;
+    }
+    return (await this.store.get<number>(W, gccKey(npcId))) ?? 0;
+  }
   /**
    * List NPCs. Persisted (activated) NPCs are visible to everyone; RAM drafts
    * are visible ONLY to their owner (pass `viewerId`). No viewer → activated only.
@@ -269,6 +318,7 @@ export class SharedWorld {
     let starving = false;
     let cost = 0;
     let richTier = false;
+    let lastUsage: InferenceUsage | undefined;
 
     const agent = new LlmAgent({
       persona, provider: this.provider, relationships, metabolism: this.metabolism,
@@ -281,14 +331,29 @@ export class SharedWorld {
         // returns (highest minBalanceGcc threshold met) — rich enough for Dream.
         richTier = !d.starving && (d.tier.label === '充盈' || d.tier.id === 'r');
       },
-      onUsage: (u) => { cost = u.gccCost ?? 0; balance -= cost; }
+      onUsage: (u) => { cost = u.gccCost ?? 0; balance -= cost; lastUsage = u; }
     });
     const resolver = new EffectResolver(new DefaultGameRules((id) => (id === input.npcId ? persona : undefined)));
     const runtime = new AgentRuntime({ agent, resolver, relationships, actuator: new NoopActuator(), now: () => Date.now() });
 
     const before = (await relationships.get(input.npcId, input.visitorId)).affinity;
     const res = await runtime.handle({ kind: 'interaction', npcId: input.npcId, playerId: input.visitorId, text: input.text } as any);
-    if (cost > 0) await this.store.set(W, gccKey(input.npcId), balance, ONCHAIN); // persist the burn on-chain
+    if (cost > 0) await this.store.set(W, gccKey(input.npcId), balance, ONCHAIN); // persist the burn (local meter)
+
+    // --- 耗(thinking burn): settle this turn's GCC via the injected strategy ---
+    // x402 facilitator nanopayment when configured (per-turn EIP-3009 → /verify
+    // off-chain; /settle batched). Globally accounted at the shared facilitator,
+    // no tx per turn. Non-fatal: the inference already ran, so a rejected
+    // nanopayment is surfaced (ok:false), never aborts the reply.
+    let settlement: SettlementResult | undefined;
+    let settleOk = true;
+    if (this.settlement && lastUsage && !starving && cost > 0) {
+      try {
+        settlement = await this.settlement.settle(input.npcId, lastUsage);
+      } catch {
+        settleOk = false;
+      }
+    }
 
     const rel = await relationships.get(input.npcId, input.visitorId);
     const result: TalkResult = {
@@ -299,7 +364,8 @@ export class SharedWorld {
       tier,
       starving,
       costGcc: cost,
-      balanceGcc: balance
+      balanceGcc: balance,
+      ...(this.settlement && cost > 0 ? { settlement: { mode: settlement?.mode ?? 'failed', receiptId: settlement?.receiptId, ok: settleOk && !!settlement } } : {})
     };
 
     // --- memory: observe this interaction (fire-and-forget, never blocks) ----
