@@ -1,7 +1,12 @@
 # onchainpal-world
 
-**KvWorld** — the global, mutable, permissionless **head-CID index** for the
-cross-server NPC world (PR-B, trustless path).
+**KvWorld** — the global, mutable **head-CID index** for the cross-server NPC
+world (PR-B). Writes are gated to an owner-managed **writer allowlist**
+(security C1 — prevents arbitrary overwrite of the shared world); **reads are
+public**. ai.gg-operated trust model for this stage; permissionless per-key-owner
+federation is a later design.
+
+Deployed (Base Sepolia): `0x02c1b66e8c8e20617253833420EC94C46eFE8d02` (v2, gated).
 
 ## Why
 
@@ -15,9 +20,12 @@ instance reading the same `KvWorld` sees the same heads.
 It's a **minimal KV**, not a full latticexyz ECS World: the kit's
 `MudWorldKvClient` only needs `World.call(systemId, kvSet|kvDel)` for writes and
 `getRecord(tableId,[key])` for reads, passing the MUD routing ids as opaque
-args. KvWorld implements exactly that ABI as a permissionless KV — minimal,
-auditable, swap-in. (Deploy a real latticexyz World later if ECS tooling is
+args. KvWorld implements exactly that ABI as a minimal, auditable, swap-in KV
+with a writer allowlist. (Deploy a real latticexyz World later if ECS tooling is
 wanted; the client is unchanged.)
+
+After deploy, authorize the world-writer EOA(s) (e.g. the wallet-svc-held key):
+`setWriter(<writer>, true)` (owner-only). The deployer is the owner + first writer.
 
 ## Tiering invariant
 

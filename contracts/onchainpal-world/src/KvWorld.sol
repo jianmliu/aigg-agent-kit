@@ -31,7 +31,12 @@ pragma solidity >=0.8.24;
  * each server's local warm tier and is snapshotted to the shared tier only at
  * milestones, so routine conversation never costs a transaction.
  *
- * Permissionless by design: anyone can write any key (openAccess). Cross-server
+ * Write authorization (C1): kvSet/kvDel are gated to an owner-managed writer
+ * allowlist (the ai.gg world-writer EOA(s), e.g. held in wallet-svc) — this
+ * removes the "anyone can overwrite any NPC's head / the registry" corruption
+ * vector. READS stay public (any server syncs the world freely). This is the
+ * ai.gg-operated trust model for the current stage; truly permissionless
+ * federation (per-key owner signatures) is a later, harder design. Cross-server
  * trust comes from content-addressing (a head CID names an immutable blob) plus
  * application-level ownership inside the stored value, not from write gating.
  */
@@ -42,15 +47,49 @@ contract KvWorld {
 
     mapping(bytes32 => bytes) private _value;
 
+    /// @notice contract owner — manages the writer allowlist.
+    address public owner;
+    /// @notice authorized writers — only these may kvSet/kvDel (reads stay public).
+    mapping(address => bool) public isWriter;
+
     event KvSet(bytes32 indexed key, bytes value);
     event KvDel(bytes32 indexed key);
+    event WriterSet(address indexed writer, bool allowed);
+    event OwnerTransferred(address indexed from, address indexed to);
+
+    error NotOwner();
+    error NotWriter();
+
+    /// deployer is the owner and the first authorized writer.
+    constructor() {
+        owner = msg.sender;
+        isWriter[msg.sender] = true;
+        emit WriterSet(msg.sender, true);
+    }
+
+    /// @notice add/remove an authorized writer (the ai.gg world-writer EOA(s),
+    /// e.g. held in wallet-svc). Owner-only.
+    function setWriter(address writer, bool allowed) external {
+        if (msg.sender != owner) revert NotOwner();
+        isWriter[writer] = allowed;
+        emit WriterSet(writer, allowed);
+    }
+
+    /// @notice transfer ownership (e.g. to a multisig). Owner-only.
+    function transferOwnership(address to) external {
+        if (msg.sender != owner) revert NotOwner();
+        emit OwnerTransferred(owner, to);
+        owner = to;
+    }
 
     /**
      * MUD-World-compatible entry point. `MudWorldKvClient` routes writes here as
      * World.call(systemId, callData). systemId is opaque routing and ignored —
-     * this World hosts exactly one (KvSystem) surface.
+     * this World hosts exactly one (KvSystem) surface. Gated: only authorized
+     * writers may mutate (C1 — prevents arbitrary overwrite of the shared world).
      */
     function call(bytes32, bytes calldata callData) external payable returns (bytes memory) {
+        if (!isWriter[msg.sender]) revert NotWriter();
         bytes4 sel = bytes4(callData[0:4]);
         if (sel == KV_SET) {
             (bytes32 key, bytes memory value) = abi.decode(callData[4:], (bytes32, bytes));
