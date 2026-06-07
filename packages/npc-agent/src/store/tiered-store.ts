@@ -17,6 +17,27 @@ export type ArchivePredicate = (scope: Scope, key: string, opts?: WriteOptions) 
 export const durableExceptBalance: ArchivePredicate = (_scope, key, opts) =>
   !!opts?.onchain && !key.endsWith(':gcc');
 
+/**
+ * Cross-server policy: mirror to the shared tier ONLY the stable, cross-server
+ * subset — world-scoped **NPC identity** (`npc:<id>`) and the **registry**
+ * (`world:npcs`). Everything else stays local.
+ *
+ * Why narrower than {@link durableExceptBalance}: when the archive's head index
+ * is ON-CHAIN (MudStore → KvWorld, the trustless cross-server head pointer),
+ * every mirrored write costs a transaction. HOT per-visitor state —
+ * relationships (`npc-player` scope) and the GCC balance (`:gcc`) — changes
+ * every conversation, so it must NOT hit the shared tier per turn. It stays in
+ * the local warm tier and is reconciled to the shared world only at milestones.
+ * The result: a second server recovers WHICH NPCs exist and their identity from
+ * chain + DSN, while routine conversation never touches the chain.
+ */
+export const crossServerStable: ArchivePredicate = (scope, key, opts) => {
+  if (!opts?.onchain) return false;
+  if (scope.type !== 'world') return false;     // relationships (npc-player) stay local
+  if (key.endsWith(':gcc')) return false;       // volatile balance stays local
+  return key === 'world:npcs' || key.startsWith('npc:'); // registry + NPC identity
+};
+
 export interface TieredStoreOptions {
   /** Fast working tier — ALL reads and writes go here (e.g. InMemoryStore, MudStore). */
   hot: Store;
