@@ -72,7 +72,7 @@ export { AiggMemoryClient } from './memory/aigg-memory-client';
 export type { AiggMemoryClientOptions, ObservePayload, ObserveResult, SelectResult, ConsolidateResult, UnitsResult, MemoryUnit } from './memory/aigg-memory-client';
 export { AutoDriveStore } from './store/auto-drive-store';
 export type { AutoDriveClient, AutoDriveStoreOptions, MemoryHistoryEntry } from './store/auto-drive-store';
-export { TieredStore, durableExceptBalance } from './store/tiered-store';
+export { TieredStore, durableExceptBalance, crossServerStable } from './store/tiered-store';
 export type { TieredStoreOptions, ArchivePredicate } from './store/tiered-store';
 
 // Economy — per-NPC virtual GCC sub-ledger (demo: game funds one AIGG account)

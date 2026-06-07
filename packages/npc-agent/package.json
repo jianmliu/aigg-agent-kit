@@ -17,7 +17,8 @@
     "test:smoke": "tsx src/__tests__/cognition-loop.smoke.ts",
     "test:autodrive": "tsx src/__tests__/auto-drive-store.smoke.ts",
     "test:gcc": "tsx src/__tests__/gcc-ledger.smoke.ts",
-    "test:metabolism": "tsx src/__tests__/metabolism.smoke.ts"
+    "test:metabolism": "tsx src/__tests__/metabolism.smoke.ts",
+    "test:tiering": "tsx src/__tests__/cross-server-tiering.smoke.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
