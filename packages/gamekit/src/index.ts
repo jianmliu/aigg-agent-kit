@@ -8,7 +8,7 @@
  * with one call — consistent platform access across all games.
  */
 export { SharedWorld } from './shared-world';
-export type { SharedWorldOptions, NpcRecord, NpcSummary, TalkResult } from './shared-world';
+export type { SharedWorldOptions, NpcRecord, NpcSummary, TalkResult, OnchainBalanceProvider } from './shared-world';
 
 // Activation seam — first GCC top-up activates a draft NPC into a permanent entity.
 export { LocalLedgerActivator, ActivationError } from './aigg/activation';

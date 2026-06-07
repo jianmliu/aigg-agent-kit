@@ -69,6 +69,18 @@ class NoopActuator implements Actuator {
   async apply(_d: StateDelta): Promise<void> {}
 }
 
+/**
+ * OnchainBalanceProvider — reads an NPC's GCC balance from its on-chain wallet
+ * (ERC-6551 TBA). The "读(balance)" rail: donations land real GCC in the TBA,
+ * so balanceOf(TBA) is the canonical, globally-consistent balance — any server
+ * reading the chain sees the same number (a second server shows the NPC active,
+ * not 沉睡). Returns null when the NPC has no on-chain wallet yet (e.g. a demo
+ * NPC never minted) → SharedWorld falls back to the local store meter.
+ */
+export interface OnchainBalanceProvider {
+  balanceGcc(npcId: string): Promise<number | null>;
+}
+
 export interface SharedWorldOptions {
   store: Store;
   provider: InferenceProvider;
@@ -105,6 +117,13 @@ export interface SharedWorldOptions {
    * settlement (the local balance meter is the only record, as before).
    */
   settlement?: SettlementStrategy;
+  /**
+   * On-chain GCC balance source (the "读" rail). When set, balanceGcc(npcId)
+   * returns the NPC's TBA balanceOf() — globally consistent across servers —
+   * falling back to the local store meter only when the provider returns null
+   * (NPC has no on-chain wallet yet). Unset → local store meter only (demo).
+   */
+  balances?: OnchainBalanceProvider;
 }
 
 export class SharedWorld {
@@ -115,6 +134,7 @@ export class SharedWorld {
   private readonly activator: Activator;
   private readonly minActivationGcc: number;
   private readonly settlement?: SettlementStrategy;
+  private readonly balances?: OnchainBalanceProvider;
   /**
    * Draft NPCs — created but never funded. RAM-only by design: no store write,
    * so they vanish on restart and never appear in the persisted registry. Keyed
@@ -131,6 +151,7 @@ export class SharedWorld {
     this.activator = opts.activator ?? new LocalLedgerActivator();
     this.minActivationGcc = opts.minActivationGcc ?? 0.001;
     this.settlement = opts.settlement;
+    this.balances = opts.balances;
     this.rooms = opts.rooms ?? ['广场', '酒馆', '集市'];
   }
 
@@ -219,7 +240,16 @@ export class SharedWorld {
   async getNpc(npcId: string): Promise<NpcRecord | null> {
     return (await this.store.get<NpcRecord>(W, npcKey(npcId))) ?? this.draftNpcs.get(npcId) ?? null;
   }
-  async balanceGcc(npcId: string): Promise<number> { return (await this.store.get<number>(W, gccKey(npcId))) ?? 0; }
+  async balanceGcc(npcId: string): Promise<number> {
+    // 读 rail: prefer the on-chain TBA balance (globally consistent across
+    // servers) when a provider is set and the NPC has an on-chain wallet;
+    // otherwise fall back to the local store meter (demo / not-yet-minted).
+    if (this.balances) {
+      const onchain = await this.balances.balanceGcc(npcId);
+      if (onchain !== null) return onchain;
+    }
+    return (await this.store.get<number>(W, gccKey(npcId))) ?? 0;
+  }
   /**
    * List NPCs. Persisted (activated) NPCs are visible to everyone; RAM drafts
    * are visible ONLY to their owner (pass `viewerId`). No viewer → activated only.
