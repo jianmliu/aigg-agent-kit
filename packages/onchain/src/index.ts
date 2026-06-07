@@ -21,7 +21,7 @@ export type { TbaAgentWalletOptions } from './tba-agent-wallet';
 
 // Remote signer — keys held by the Go wallet-svc (aigg-wallet), not in-process
 export { AiggWalletClient, selectorBody } from './aigg-wallet-client';
-export type { AiggWalletClientOptions, DeriveResult, SignResult, Eip3009Params, Eip3009Result, KeySelector } from './aigg-wallet-client';
+export type { AiggWalletClientOptions, DeriveResult, SignResult, Eip3009Params, Eip3009Result, KeySelector, SignTxParams, SignTxResult } from './aigg-wallet-client';
 export { RemoteAgentWallet } from './remote-agent-wallet';
 export type { RemoteAgentWalletOptions } from './remote-agent-wallet';
 
