@@ -97,10 +97,12 @@ export class AiggWalletClient {
     this.fetchImpl = f;
   }
 
-  /** Resolve an agent EOA address. `sel` is an npcId string (legacy) or a
-   *  structured `{ owner, agent }` / `{ path }` selector. */
+  /** Resolve an agent EOA address. `sel` is an npcId string (legacy `/address`
+   *  subject) or a structured `{ owner, agent }` (`/address/agent`) / `{ path }`
+   *  (`/address/path`) selector — wallet-svc routes these on separate endpoints. */
   async address(sel: KeySelector): Promise<DeriveResult> {
-    return this.post('/address', selectorBody(sel)) as Promise<DeriveResult>;
+    const path = typeof sel === 'string' ? '/address' : 'path' in sel ? '/address/path' : '/address/agent';
+    return this.post(path, selectorBody(sel)) as Promise<DeriveResult>;
   }
 
   async sign(sel: KeySelector, typedData: TypedDataPayload): Promise<SignResult> {
