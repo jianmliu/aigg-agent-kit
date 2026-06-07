@@ -51,6 +51,19 @@ export interface TieredStoreOptions {
    * (auto-respawn / new-replica bootstrap).
    */
   readThrough?: boolean;
+  /**
+   * Mirror to the archive in the BACKGROUND (write-behind) instead of blocking
+   * the caller. The hot write still completes synchronously (durable locally);
+   * the archive mirror (slow DSN upload + on-chain head write) is queued and
+   * retried, so an activation/move isn't blocked for seconds. Failed writes are
+   * reported via `onArchiveError`. Call `flush()` before shutdown to drain.
+   * Default false (synchronous mirror).
+   */
+  asyncArchive?: boolean;
+  /** retry attempts for a background archive write before giving up. Default 3. */
+  archiveRetries?: number;
+  /** invoked when a background archive write ultimately fails (after retries). */
+  onArchiveError?: (scope: Scope, key: string, err: unknown) => void;
 }
 
 /**
@@ -70,6 +83,13 @@ export class TieredStore implements Store {
   private readonly archive: Store;
   private readonly archived: ArchivePredicate;
   private readonly readThrough: boolean;
+  private readonly asyncArchive: boolean;
+  private readonly archiveRetries: number;
+  private readonly onArchiveError?: (scope: Scope, key: string, err: unknown) => void;
+  /** serialized write-behind queue (preserves order; one archive write at a time). */
+  private queue: Promise<void> = Promise.resolve();
+  /** count of in-flight background archive writes (inspectable by tests). */
+  private inflight = 0;
   /** `scope.type|key` of every write mirrored to the archive this session (trace/metrics). */
   readonly archivedKeys = new Set<string>();
 
@@ -78,6 +98,9 @@ export class TieredStore implements Store {
     this.archive = opts.archive;
     this.archived = opts.archived ?? durableExceptBalance;
     this.readThrough = opts.readThrough ?? false;
+    this.asyncArchive = opts.asyncArchive ?? false;
+    this.archiveRetries = opts.archiveRetries ?? 3;
+    this.onArchiveError = opts.onArchiveError;
   }
 
   async get<T>(scope: Scope, key: string): Promise<T | null> {
@@ -88,11 +111,37 @@ export class TieredStore implements Store {
 
   async set<T>(scope: Scope, key: string, value: T, opts?: WriteOptions): Promise<void> {
     await this.hot.set(scope, key, value, opts);
-    if (this.archived(scope, key, opts)) {
+    if (!this.archived(scope, key, opts)) return;
+    if (this.asyncArchive) {
+      this.enqueueArchive(scope, key, value, opts); // write-behind — don't block the caller
+    } else {
       await this.archive.set(scope, key, value, opts);
       this.archivedKeys.add(`${scope.type}|${key}`);
     }
   }
+
+  /** enqueue a background archive write (serialized, retried, never throws to caller). */
+  private enqueueArchive<T>(scope: Scope, key: string, value: T, opts?: WriteOptions): void {
+    this.inflight++;
+    this.queue = this.queue.then(async () => {
+      try {
+        let lastErr: unknown;
+        for (let attempt = 0; attempt < this.archiveRetries; attempt++) {
+          try { await this.archive.set(scope, key, value, opts); this.archivedKeys.add(`${scope.type}|${key}`); return; }
+          catch (e) { lastErr = e; }
+        }
+        this.onArchiveError?.(scope, key, lastErr);
+      } finally {
+        this.inflight--;
+      }
+    });
+  }
+
+  /** drain all pending background archive writes (call before shutdown). */
+  async flush(): Promise<void> { await this.queue; }
+
+  /** number of background archive writes still pending. */
+  pendingArchiveWrites(): number { return this.inflight; }
 
   async delete(scope: Scope, key: string): Promise<void> {
     await this.hot.delete(scope, key);

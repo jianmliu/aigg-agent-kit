@@ -18,7 +18,8 @@
     "test:autodrive": "tsx src/__tests__/auto-drive-store.smoke.ts",
     "test:gcc": "tsx src/__tests__/gcc-ledger.smoke.ts",
     "test:metabolism": "tsx src/__tests__/metabolism.smoke.ts",
-    "test:tiering": "tsx src/__tests__/cross-server-tiering.smoke.ts"
+    "test:tiering": "tsx src/__tests__/cross-server-tiering.smoke.ts",
+    "test:asyncarchive": "tsx src/__tests__/tiered-async-archive.smoke.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
