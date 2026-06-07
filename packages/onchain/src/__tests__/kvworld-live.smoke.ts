@@ -69,6 +69,23 @@ class ViemKvClient implements MudKvClient {
   }
 }
 
+/**
+ * Read-retry — public RPCs (e.g. sepolia.base.org) are load-balanced, so an
+ * eth_call right after a confirmed write can hit a node a block behind and
+ * return stale/empty. Production cross-server reads happen seconds+ after the
+ * write (no issue); this same-process read-after-write is the worst case, so we
+ * poll until the value propagates. NOT a contract or client concern.
+ */
+async function readUntil<T>(fn: () => Promise<T>, ok: (v: T) => boolean, label: string, tries = 30, delayMs = 2000): Promise<T> {
+  let last: T;
+  for (let i = 0; i < tries; i++) {
+    last = await fn();
+    if (ok(last)) return last;
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  throw new Error(`readUntil timed out (${tries * delayMs / 1000}s): ${label}`);
+}
+
 /** shared, content-addressed blob store — the global DSN both servers can reach. */
 function sharedDsn(): AutoDriveClient {
   const blobs = new Map<string, string>();
@@ -93,7 +110,7 @@ async function main() {
   const client = new ViemKvClient(world, rpcUrl, pk);
   const key = ('0x' + 'ab'.repeat(32)) as Hex;
   await client.setRecord(key, '{"head":"cid:abc"}');
-  assert.equal(await client.getRecord(key), '{"head":"cid:abc"}', 'KvWorld set→get round-trips on-chain');
+  assert.equal(await readUntil(() => client.getRecord(key), (v) => v === '{"head":"cid:abc"}', 'raw round-trip'), '{"head":"cid:abc"}', 'KvWorld set→get round-trips on-chain');
   const missing = ('0x' + 'cd'.repeat(32)) as Hex;
   assert.equal(await client.getRecord(missing), null, 'absent key → null (empty dynamicData)');
   console.log('  ✓ KvWorld raw KV round-trip on real chain');
@@ -101,7 +118,7 @@ async function main() {
   // ── 2. MudStore over KvWorld: {onchain:true} subset mirrored to chain ────────
   const ms = new MudStore({ client, readThrough: true });
   await ms.set(W, 'world:npcs', ['npc:酒剑仙'], { onchain: true });
-  assert.deepEqual(await ms.getOnchain(W, 'world:npcs'), ['npc:酒剑仙'], 'registry readable from chain');
+  assert.deepEqual(await readUntil(() => ms.getOnchain<string[]>(W, 'world:npcs'), (v) => Array.isArray(v) && v[0] === 'npc:酒剑仙', 'registry'), ['npc:酒剑仙'], 'registry readable from chain');
   console.log('  ✓ MudStore registry write → readable on-chain');
 
   // ── 3. CROSS-SERVER convergence: two independent stacks, shared chain+DSN ────
@@ -113,13 +130,13 @@ async function main() {
   const identity = { id: 'npc:酒剑仙', name: '酒剑仙', owner: 'player:A', room: '酒馆', background: '嗜酒如命的剑道高人' };
   await serverA.set(W, npcKey, identity, { onchain: true }); // A authors → head CID on chain, blob in shared DSN
 
-  const recovered = await serverB.get(W, npcKey); // B has its OWN fresh stack
+  const recovered = await readUntil(() => serverB.get<typeof identity>(W, npcKey), (v) => v?.name === '酒剑仙', 'cross-server recover'); // B has its OWN fresh stack
   assert.deepEqual(recovered, identity, 'server B recovers A’s NPC via on-chain head + shared DSN blob (CROSS-SERVER)');
   console.log('  ✓ cross-server convergence: server B recovered server A’s NPC from chain head + shared DSN');
 
   // ── 4. git-like history walkable across servers ─────────────────────────────
   await serverA.set(W, npcKey, { ...identity, room: '广场' }, { onchain: true }); // A moves it
-  const moved = await serverB.get(W, npcKey);
+  const moved = await readUntil(() => serverB.get<typeof identity>(W, npcKey), (v) => v?.room === '广场', 'cross-server update');
   assert.equal((moved as typeof identity).room, '广场', 'server B sees the update (head advanced on chain)');
   const hist = await serverB.history(W, npcKey);
   assert.ok(hist.length >= 2, `git-like history walkable cross-server (${hist.length} nodes)`);
