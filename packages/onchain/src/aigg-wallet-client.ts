@@ -67,6 +67,23 @@ export interface Eip3009Result {
   requirements: unknown;
 }
 
+/** Params for /sign/tx — an arbitrary EIP-1559 tx signed with the selected key. */
+export interface SignTxParams {
+  chainId: number;
+  nonce: number;
+  to: `0x${string}`;
+  /** hex calldata (0x... ). */
+  data: `0x${string}`;
+  /** wei (default 0n). */
+  value?: bigint;
+  gas: bigint;
+  gasTipCap: bigint;
+  gasFeeCap: bigint;
+}
+export interface SignTxResult {
+  rawSignedTx: `0x${string}`;
+}
+
 export class AiggWalletClient {
   private readonly base: string;
   private readonly token: string;
@@ -100,6 +117,27 @@ export class AiggWalletClient {
    */
   async signEip3009(sel: KeySelector, p: Eip3009Params): Promise<Eip3009Result> {
     return this.post('/sign/eip3009', { ...selectorBody(sel), ...p }) as Promise<Eip3009Result>;
+  }
+
+  /**
+   * Sign an arbitrary EIP-1559 tx with the selected key (the caller builds
+   * calldata/nonce/gas and broadcasts the returned rawSignedTx). POWERFUL — the
+   * caller is the trusted policy layer (decides to/data/value). Used by
+   * RemoteNpcMinter so the minter/treasury key lives in wallet-svc, never in the
+   * mud-server process. Returns the raw signed tx hex to broadcast.
+   */
+  async signTx(sel: KeySelector, p: SignTxParams): Promise<SignTxResult> {
+    return this.post('/sign/tx', {
+      ...selectorBody(sel),
+      chainID: p.chainId,
+      nonce: p.nonce,
+      to: p.to,
+      data: p.data,
+      value: (p.value ?? 0n).toString(),
+      gas: Number(p.gas),
+      gasTipCap: p.gasTipCap.toString(),
+      gasFeeCap: p.gasFeeCap.toString(),
+    }) as Promise<SignTxResult>;
   }
 
   private async post(path: string, body: unknown): Promise<unknown> {
