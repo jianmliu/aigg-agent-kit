@@ -26,6 +26,7 @@ import { LocalLedgerActivator, ActivationError } from './aigg/activation';
 import type { Activator } from './aigg/activation';
 import { applyTx, relKey, type WorldState } from './stf/world-stf';
 import { LlmInferenceOracle, type InferenceOracle } from './stf/inference-oracle';
+import type { SettlementLayer } from './stf/settlement-layer';
 import type { Effect, Attestation } from '@onchainpal/npc-agent';
 
 const W: Scope = { type: 'world' };
@@ -131,6 +132,13 @@ export interface SharedWorldOptions {
    * oracle (TEE) to make the AI output verifiable.
    */
   oracle?: InferenceOracle;
+  /**
+   * VALUE leg — when set, GCC is settled on a canonical layer (Base): balanceGcc
+   * reads `balanceOf` (the on-chain TBA), and donate/fund `deposit` real GCC into
+   * it (fixing the "donate writes a local number that never reaches the TBA"
+   * gap). Unset → the local store meter (+ optional `balances` reader), as before.
+   */
+  settlementLayer?: SettlementLayer;
 }
 
 export class SharedWorld {
@@ -143,6 +151,7 @@ export class SharedWorld {
   private readonly settlement?: SettlementStrategy;
   private readonly balances?: OnchainBalanceProvider;
   private readonly oracle: InferenceOracle;
+  private readonly settlementLayer?: SettlementLayer;
   /**
    * Draft NPCs — created but never funded. RAM-only by design: no store write,
    * so they vanish on restart and never appear in the persisted registry. Keyed
@@ -162,6 +171,7 @@ export class SharedWorld {
     this.balances = opts.balances;
     // default oracle wraps the same LlmAgent reasoning; SharedWorld gates metabolism itself.
     this.oracle = opts.oracle ?? new LlmInferenceOracle({ provider: this.provider });
+    this.settlementLayer = opts.settlementLayer;
     this.rooms = opts.rooms ?? ['广场', '酒馆', '集市'];
   }
 
@@ -235,6 +245,12 @@ export class SharedWorld {
   }
 
   private async addGcc(npcId: string, gcc: number): Promise<number> {
+    // VALUE leg: deposit real GCC into the canonical settlement (Base TBA), so a
+    // donate actually reaches the on-chain balance balanceGcc reads.
+    if (this.settlementLayer) {
+      await this.settlementLayer.deposit(npcId, Math.max(0, gcc));
+      return this.balanceGcc(npcId);
+    }
     const bal = (await this.balanceGcc(npcId)) + Math.max(0, gcc);
     await this.store.set(W, gccKey(npcId), bal, ONCHAIN);
     return bal;
@@ -251,10 +267,12 @@ export class SharedWorld {
     return (await this.store.get<NpcRecord>(W, npcKey(npcId))) ?? this.draftNpcs.get(npcId) ?? null;
   }
   async balanceGcc(npcId: string): Promise<number> {
-    // 读 rail: prefer the on-chain TBA balance (globally consistent across
-    // servers) when a provider is set and the NPC has an on-chain wallet;
-    // otherwise fall back to the local store meter (demo / not-yet-minted).
-    if (this.balances) {
+    // 读 rail: prefer the canonical settlement balance (Base TBA balanceOf) when a
+    // settlement layer / on-chain reader is set; otherwise the local store meter.
+    if (this.settlementLayer) {
+      const v = await this.settlementLayer.balanceOf(npcId);
+      if (v !== null) return v;
+    } else if (this.balances) {
       const onchain = await this.balances.balanceGcc(npcId);
       if (onchain !== null) return onchain;
     }
