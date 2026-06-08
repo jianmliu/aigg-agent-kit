@@ -14,7 +14,8 @@
     "test:memory": "tsx src/__tests__/shared-world-memory.smoke.ts",
     "test:platform": "tsx src/__tests__/aigg-platform-npcs.smoke.ts",
     "test:settlement": "tsx src/__tests__/settlement-wiring.smoke.ts",
-    "test:stf": "tsx src/__tests__/world-stf.smoke.ts"
+    "test:stf": "tsx src/__tests__/world-stf.smoke.ts",
+    "test:verifiable": "tsx src/__tests__/verifiable-execution.smoke.ts"
   },
   "dependencies": { "@onchainpal/npc-agent": "workspace:*" },
   "devDependencies": { "@types/node": "^22.8.4", "tsx": "^4.21.0" }
