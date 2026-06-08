@@ -10,6 +10,12 @@
 export { SharedWorld } from './shared-world';
 export type { SharedWorldOptions, NpcRecord, NpcSummary, TalkResult, OnchainBalanceProvider } from './shared-world';
 
+// Deterministic world STF + AI oracle boundary (sequencer / Autonomys-Domain ready).
+export { applyTx, applyAll, stateRoot, emptyWorld, relKey } from './stf/world-stf';
+export type { WorldState, WorldTx, WorldEvent, StfNpc } from './stf/world-stf';
+export { LlmInferenceOracle } from './stf/inference-oracle';
+export type { InferenceOracle, OracleInput, OracleOutput, LlmInferenceOracleOptions } from './stf/inference-oracle';
+
 // Activation seam — first GCC top-up activates a draft NPC into a permanent entity.
 export { LocalLedgerActivator, ActivationError } from './aigg/activation';
 export type { Activator, ActivationInput, ActivationResult, ActivationLedgerEntry } from './aigg/activation';
