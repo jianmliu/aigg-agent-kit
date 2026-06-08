@@ -19,6 +19,8 @@ export { LlmInferenceOracle } from './stf/inference-oracle';
 export type { InferenceOracle, OracleInput, OracleOutput, LlmInferenceOracleOptions } from './stf/inference-oracle';
 export { PlanningOracle } from './stf/planning-oracle';
 export type { PlanningOracleOptions } from './stf/planning-oracle';
+export { ReflectionOracle } from './stf/reflection-oracle';
+export type { ReflectionOracleOptions } from './stf/reflection-oracle';
 // AI-verifiability leg — attest + verify the oracle output (operator-sig now, TEE drop-in later).
 export { OperatorAttestationVerifier, signAttestation, verifyTalkProvenance, attestationMessage, sha256Hex } from './stf/attestation-verifier';
 export type { AttestationVerifier, VerifyResult, TalkProvenance } from './stf/attestation-verifier';
