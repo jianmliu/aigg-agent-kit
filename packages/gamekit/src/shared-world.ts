@@ -15,16 +15,18 @@
  * free-text background is used as the persona the runtime LLM role-plays.
  */
 import {
-  LlmAgent, AgentRuntime, EffectResolver, DefaultGameRules,
-  RelationshipMemory, resolveAddressing, DEFAULT_METABOLISM
+  DefaultGameRules, RelationshipMemory, resolveAddressing, DEFAULT_METABOLISM
 } from '@onchainpal/npc-agent';
 import type {
-  Store, Scope, InferenceProvider, NpcPersona, Actuator, StateDelta, SayOptions, Metabolism,
-  SettlementStrategy, SettlementResult, InferenceUsage
+  Store, Scope, InferenceProvider, NpcPersona, Metabolism,
+  SettlementStrategy, SettlementResult
 } from '@onchainpal/npc-agent';
 import type { AiggMemoryClient } from '@onchainpal/npc-agent';
 import { LocalLedgerActivator, ActivationError } from './aigg/activation';
 import type { Activator } from './aigg/activation';
+import { applyTx, relKey, type WorldState } from './stf/world-stf';
+import { LlmInferenceOracle, type InferenceOracle } from './stf/inference-oracle';
+import type { Effect, Attestation } from '@onchainpal/npc-agent';
 
 const W: Scope = { type: 'world' };
 const ONCHAIN = { onchain: true } as const;
@@ -62,12 +64,10 @@ export interface TalkResult {
    * still proceeds (the inference already ran); the attempt is surfaced, not fatal.
    */
   settlement?: { mode: string; receiptId?: string; ok: boolean };
+  /** AI provenance — the oracle's signed attestation (model+prompt+response), when present. */
+  attestation?: Attestation;
 }
 
-class NoopActuator implements Actuator {
-  async say(_n: string, _l: string, _o?: SayOptions): Promise<void> {}
-  async apply(_d: StateDelta): Promise<void> {}
-}
 
 /**
  * OnchainBalanceProvider — reads an NPC's GCC balance from its on-chain wallet
@@ -124,6 +124,13 @@ export interface SharedWorldOptions {
    * (NPC has no on-chain wallet yet). Unset → local store meter only (demo).
    */
   balances?: OnchainBalanceProvider;
+  /**
+   * AI reasoning oracle — talk() runs this (impure LLM) to produce effects, then
+   * applies them via the pure STF (applyTx). Defaults to LlmInferenceOracle over
+   * `provider` (wraps the same LlmAgent reasoning). Inject a different/attesting
+   * oracle (TEE) to make the AI output verifiable.
+   */
+  oracle?: InferenceOracle;
 }
 
 export class SharedWorld {
@@ -135,6 +142,7 @@ export class SharedWorld {
   private readonly minActivationGcc: number;
   private readonly settlement?: SettlementStrategy;
   private readonly balances?: OnchainBalanceProvider;
+  private readonly oracle: InferenceOracle;
   /**
    * Draft NPCs — created but never funded. RAM-only by design: no store write,
    * so they vanish on restart and never appear in the persisted registry. Keyed
@@ -152,6 +160,8 @@ export class SharedWorld {
     this.minActivationGcc = opts.minActivationGcc ?? 0.001;
     this.settlement = opts.settlement;
     this.balances = opts.balances;
+    // default oracle wraps the same LlmAgent reasoning; SharedWorld gates metabolism itself.
+    this.oracle = opts.oracle ?? new LlmInferenceOracle({ provider: this.provider });
     this.rooms = opts.rooms ?? ['广场', '酒馆', '集市'];
   }
 
@@ -313,51 +323,54 @@ export class SharedWorld {
 
     const persona = this.personaFor(rec, memoryBundle);
     const relationships = new RelationshipMemory(this.store);
-    let balance = await this.balanceGcc(input.npcId);
-    let tier = '清醒';
-    let starving = false;
-    let cost = 0;
-    let richTier = false;
-    let lastUsage: InferenceUsage | undefined;
+    const balance0 = await this.balanceGcc(input.npcId);
+    const beforeRel = await relationships.get(input.npcId, input.visitorId);
+    const before = beforeRel.affinity;
 
-    const agent = new LlmAgent({
-      persona, provider: this.provider, relationships, metabolism: this.metabolism,
-      readBalanceGcc: async () => balance,
-      hungerLine: `（${rec.name} 灵力枯竭，无法回应……需要有人为 TA 充值 GCC）`,
-      onMetabolism: (d) => {
-        starving = d.starving;
-        tier = d.starving ? '🥵饥饿' : (d.tier.label ?? d.tier.id);
-        // "充盈" = labelled '充盈' or the first non-starving tier the metabolism
-        // returns (highest minBalanceGcc threshold met) — rich enough for Dream.
-        richTier = !d.starving && (d.tier.label === '充盈' || d.tier.id === 'r');
-      },
-      onUsage: (u) => { cost = u.gccCost ?? 0; balance -= cost; lastUsage = u; }
-    });
-    const resolver = new EffectResolver(new DefaultGameRules((id) => (id === input.npcId ? persona : undefined)));
-    const runtime = new AgentRuntime({ agent, resolver, relationships, actuator: new NoopActuator(), now: () => Date.now() });
+    // metabolism gate (deterministic, pure) — drives tier/starving/rich + the
+    // hunger fallback, exactly as the in-place LlmAgent did via onMetabolism.
+    const decision = this.metabolism.decide(balance0);
+    const starving = decision.starving;
+    const tier = decision.starving ? '🥵饥饿' : (decision.tier.label ?? decision.tier.id);
+    const richTier = !decision.starving && (decision.tier.label === '充盈' || decision.tier.id === 'r');
 
-    const before = (await relationships.get(input.npcId, input.visitorId)).affinity;
-    const res = await runtime.handle({ kind: 'interaction', npcId: input.npcId, playerId: input.visitorId, text: input.text } as any);
-    if (cost > 0) await this.store.set(W, gccKey(input.npcId), balance, ONCHAIN); // persist the burn (local meter)
+    // AI (impure oracle) — quarantined. Starving → scripted line, NO LLM, NO cost.
+    const oracleOut = decision.canThink
+      ? await this.oracle.produce({ npcId: input.npcId, playerId: input.visitorId, text: input.text, persona, balanceGcc: balance0, rel: beforeRel })
+      : { say: `（${rec.name} 灵力枯竭，无法回应……需要有人为 TA 充值 GCC）`, effects: [] as Effect[], gccCost: 0, usage: undefined, attestation: undefined };
+    const cost = oracleOut.gccCost;
+
+    // EXECUTION (pure STF) — validate + apply effects + burn on a minimal state
+    // slice (the deterministic core; same DefaultGameRules anti-cheat as before).
+    const rk = relKey(input.npcId, input.visitorId);
+    const rules = new DefaultGameRules((id) => (id === input.npcId ? persona : undefined));
+    const slice: WorldState = { npcs: { [input.npcId]: { ...rec, status: 'active' } }, registry: [], balances: { [input.npcId]: balance0 }, relationships: { [rk]: beforeRel }, flags: {} };
+    const now = Date.now();
+    const applied = applyTx(slice, { type: 'applyTalk', npcId: input.npcId, playerId: input.visitorId, effects: oracleOut.effects, gccCost: cost, now }, rules).state;
+    const rel = applied.relationships[rk];
+    const balance = applied.balances[input.npcId];
+
+    // persist via the existing tiering-safe write paths: relationship delta + burn.
+    const netDelta = rel.affinity - before;
+    if (netDelta !== 0) await relationships.applyDelta(input.npcId, input.visitorId, netDelta, [], now);
+    if (cost > 0) await this.store.set(W, gccKey(input.npcId), balance, ONCHAIN);
 
     // --- 耗(thinking burn): settle this turn's GCC via the injected strategy ---
     // x402 facilitator nanopayment when configured (per-turn EIP-3009 → /verify
-    // off-chain; /settle batched). Globally accounted at the shared facilitator,
-    // no tx per turn. Non-fatal: the inference already ran, so a rejected
-    // nanopayment is surfaced (ok:false), never aborts the reply.
+    // off-chain; /settle batched). Non-fatal: the inference already ran, so a
+    // rejected nanopayment is surfaced (ok:false), never aborts the reply.
     let settlement: SettlementResult | undefined;
     let settleOk = true;
-    if (this.settlement && lastUsage && !starving && cost > 0) {
+    if (this.settlement && oracleOut.usage && !starving && cost > 0) {
       try {
-        settlement = await this.settlement.settle(input.npcId, lastUsage);
+        settlement = await this.settlement.settle(input.npcId, oracleOut.usage);
       } catch {
         settleOk = false;
       }
     }
 
-    const rel = await relationships.get(input.npcId, input.visitorId);
     const result: TalkResult = {
-      said: res.said,
+      said: oracleOut.say,
       affinity: rel.affinity,
       dAffinity: rel.affinity - before,
       addressing: resolveAddressing(persona, rel.affinity),
@@ -365,7 +378,8 @@ export class SharedWorld {
       starving,
       costGcc: cost,
       balanceGcc: balance,
-      ...(this.settlement && cost > 0 ? { settlement: { mode: settlement?.mode ?? 'failed', receiptId: settlement?.receiptId, ok: settleOk && !!settlement } } : {})
+      ...(this.settlement && cost > 0 ? { settlement: { mode: settlement?.mode ?? 'failed', receiptId: settlement?.receiptId, ok: settleOk && !!settlement } } : {}),
+      ...(oracleOut.attestation ? { attestation: oracleOut.attestation } : {})
     };
 
     // --- memory: observe this interaction (fire-and-forget, never blocks) ----
@@ -378,7 +392,7 @@ export class SharedWorld {
         kind: 'episodic' as const,
         description: `${input.visitorId} 与 ${rec.name} 的互动：好感 ${rel.affinity}（+${result.dAffinity}）`,
         match: [input.visitorId, rec.name, '好感', 'affinity', 'relationship'],
-        body: `「${input.text}」→ 好感 ${rel.affinity}，${rec.name} 回应：「${res.said ?? '…'}」`,
+        body: `「${input.text}」→ 好感 ${rel.affinity}，${rec.name} 回应：「${oracleOut.say ?? '…'}」`,
       };
       // fire-and-forget: errors are logged, never thrown
       this.memory.observe(obsPayload, { corpus, evidence }).catch(() => {});
