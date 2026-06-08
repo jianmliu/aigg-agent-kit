@@ -41,7 +41,15 @@ export type WorldTx =
   | { type: 'move'; npcId: string; room: string }
   /** the committed result of a talk: the oracle's effects + GCC cost. `now` is
    *  carried IN the tx (never read from the clock) so execution is reproducible. */
-  | { type: 'applyTalk'; npcId: string; playerId: string; effects: Effect[]; gccCost: number; now: number };
+  | { type: 'applyTalk'; npcId: string; playerId: string; effects: Effect[]; gccCost: number; now: number }
+  /**
+   * An EXOGENOUS luck shock (Talent-vs-Luck experiment). The randomness lives in
+   * the seeded stream that GENERATES these txs (outside the STF); the STF only
+   * applies them deterministically, so the whole run replays bit-for-bit.
+   * `gccFactor` = multiplicative luck (balance *= f, e.g. 1.5 good / 0.5 bad);
+   * `gccDelta` = additive luck (balance += d, d<0 = bad). Both optional/composable.
+   */
+  | { type: 'luckEvent'; npcId: string; gccDelta?: number; gccFactor?: number; affinityDelta?: number; playerId?: string; label?: string; now: number };
 
 /** Events emitted by a tx — the receipt/log (also fraud-proof comparable). */
 export type WorldEvent =
@@ -53,6 +61,8 @@ export type WorldEvent =
   | { kind: 'flagSet'; playerId: string; flag: string; value: number }
   | { kind: 'hostEffect'; npcId: string; playerId: string; effect: Effect }
   | { kind: 'burned'; npcId: string; gccCost: number; balanceGcc: number }
+  /** an exogenous luck shock; `gccAfter - gccBefore` IS the realized luck score (exact, auditable). */
+  | { kind: 'luck'; npcId: string; label?: string; gccBefore: number; gccAfter: number }
   | { kind: 'rejected'; reason: string; tx?: WorldTx; effect?: Effect };
 
 export const relKey = (npcId: string, playerId: string) => `${npcId}|${playerId}`;
@@ -126,6 +136,22 @@ export function applyTx(prev: WorldState, tx: WorldTx, rules: GameRules): { stat
         state.balances[tx.npcId] = Math.max(0, b - tx.gccCost); // 耗: deterministic burn
         events.push({ kind: 'burned', npcId: tx.npcId, gccCost: tx.gccCost, balanceGcc: state.balances[tx.npcId] });
       }
+      break;
+    }
+    case 'luckEvent': {
+      if (!state.npcs[tx.npcId]) { events.push({ kind: 'rejected', reason: 'no_npc', tx }); break; }
+      const before = state.balances[tx.npcId] ?? 0;
+      let after = before;
+      if (tx.gccFactor != null) after = after * tx.gccFactor;   // multiplicative luck
+      if (tx.gccDelta != null) after = after + tx.gccDelta;      // additive luck (delta<0 = bad)
+      after = Math.max(0, after);
+      state.balances[tx.npcId] = after;
+      if (tx.affinityDelta != null && tx.playerId) {
+        const key = relKey(tx.npcId, tx.playerId);
+        const rel = state.relationships[key] ?? { affinity: 0, tags: [] };
+        state.relationships[key] = { ...rel, affinity: rel.affinity + tx.affinityDelta, lastInteractionAt: tx.now };
+      }
+      events.push({ kind: 'luck', npcId: tx.npcId, label: tx.label, gccBefore: before, gccAfter: after });
       break;
     }
   }

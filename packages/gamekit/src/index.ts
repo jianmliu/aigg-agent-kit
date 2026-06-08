@@ -13,6 +13,8 @@ export type { SharedWorldOptions, NpcRecord, NpcSummary, TalkResult, OnchainBala
 // Deterministic world STF + AI oracle boundary (sequencer / Autonomys-Domain ready).
 export { applyTx, applyAll, stateRoot, emptyWorld, relKey } from './stf/world-stf';
 export type { WorldState, WorldTx, WorldEvent, StfNpc } from './stf/world-stf';
+export { mulberry32, rollLuck } from './stf/luck';
+export type { LuckConfig, LuckEventTx } from './stf/luck';
 export { LlmInferenceOracle } from './stf/inference-oracle';
 export type { InferenceOracle, OracleInput, OracleOutput, LlmInferenceOracleOptions } from './stf/inference-oracle';
 // AI-verifiability leg — attest + verify the oracle output (operator-sig now, TEE drop-in later).
