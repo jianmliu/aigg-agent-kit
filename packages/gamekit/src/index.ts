@@ -15,6 +15,12 @@ export { applyTx, applyAll, stateRoot, emptyWorld, relKey } from './stf/world-st
 export type { WorldState, WorldTx, WorldEvent, StfNpc } from './stf/world-stf';
 export { LlmInferenceOracle } from './stf/inference-oracle';
 export type { InferenceOracle, OracleInput, OracleOutput, LlmInferenceOracleOptions } from './stf/inference-oracle';
+// AI-verifiability leg — attest + verify the oracle output (operator-sig now, TEE drop-in later).
+export { OperatorAttestationVerifier, signAttestation, verifyTalkProvenance, attestationMessage, sha256Hex } from './stf/attestation-verifier';
+export type { AttestationVerifier, VerifyResult, TalkProvenance } from './stf/attestation-verifier';
+// Value leg — Base is the canonical asset-settlement layer (conservation invariant).
+export { BaseSettlementLayer } from './stf/settlement-layer';
+export type { SettlementLayer } from './stf/settlement-layer';
 
 // Activation seam — first GCC top-up activates a draft NPC into a permanent entity.
 export { LocalLedgerActivator, ActivationError } from './aigg/activation';
