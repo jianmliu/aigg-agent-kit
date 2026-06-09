@@ -69,6 +69,10 @@ export interface UnitsResult {
   total: number;
 }
 
+/** A synthesized forward intention (kind=plan, status=candidate). */
+export interface PlanUnit { slug: string; name: string; description?: string; body?: string; valid_from?: string; derived_from?: string[] }
+export interface PlanResult { plans: PlanUnit[]; written?: boolean }
+
 export interface AiggMemoryClientOptions {
   /** base URL of the agentmf serve process, e.g. "http://localhost:8787" */
   baseUrl: string;
@@ -135,6 +139,27 @@ export class AiggMemoryClient {
       corpus: opts?.corpus ?? this.defaultCorpus,
       evidence: opts?.evidence ?? this.defaultEvidence,
       write: opts?.write ?? false,
+    });
+  }
+
+  /**
+   * plan — synthesize forward intentions (kind=plan) from goals + beliefs (the
+   * forward mirror of consolidate/reflect). `now` is required (the kernel ships
+   * no clock). The server's planner needs a model: pass `aiggUrl`/`backend`/`model`
+   * (e.g. Ollama's OpenAI endpoint) — or `backend:"claude-cli"`. The kernel never
+   * acts on a plan; the host (MUD) reads it and decides.
+   */
+  async plan(opts: { now: string; corpus?: string; goals?: string[]; write?: boolean; horizon?: string; aiggUrl?: string; aiggKey?: string; model?: string; backend?: string }): Promise<PlanResult> {
+    return this.post('/memory/plan', {
+      corpus: opts.corpus ?? this.defaultCorpus,
+      now: opts.now,
+      write: opts.write ?? false,
+      ...(opts.goals ? { goals: opts.goals } : {}),
+      ...(opts.horizon ? { horizon: opts.horizon } : {}),
+      ...(opts.aiggUrl ? { aigg_url: opts.aiggUrl } : {}),
+      ...(opts.aiggKey ? { aigg_key: opts.aiggKey } : {}),
+      ...(opts.model ? { model: opts.model } : {}),
+      ...(opts.backend ? { backend: opts.backend } : {}),
     });
   }
 
