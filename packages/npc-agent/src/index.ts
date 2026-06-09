@@ -46,6 +46,8 @@ export type {
 } from './inference/provider';
 export { OllamaProvider } from './inference/ollama-provider';
 export type { OllamaProviderOptions } from './inference/ollama-provider';
+export { ClaudeCliProvider } from './inference/claude-cli-provider';
+export type { ClaudeCliProviderOptions } from './inference/claude-cli-provider';
 export { ProxyProvider } from './inference/proxy-provider';
 export type { ProxyProviderOptions } from './inference/proxy-provider';
 // NOTE: ClaudeProvider is intentionally NOT re-exported here — it pulls
