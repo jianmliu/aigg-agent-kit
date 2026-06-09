@@ -28,6 +28,25 @@ async function main() {
     assert.equal(captured.body.model, 'gemma4:latest');
     assert.equal(res.plans[0].name, '帮旅人', 'parses PlanResult');
     console.log('  ✓ plan() → POST /memory/plan with corpus/now/goals/write + model backend; parses PlanResult');
+
+    // remember() — the zero-LLM structured-fact write path (the MUD's recall source)
+    captured = null;
+    (globalThis as any).fetch = async (url: string, init: any) => { captured = { url, body: JSON.parse(init.body) }; return { ok: true, status: 200, json: async () => ({ ok: true, data: { ok: true } }) } as any; };
+    await c.remember({ name: '旅人很有礼貌', kind: 'semantic', description: '旅人多次道谢', match: ['旅人', '礼貌'] }, { evidence: 'npcs/鸿蒙/evidence.jsonl' });
+    assert.ok(captured.url.endsWith('/memory/remember'), 'POST /memory/remember');
+    assert.equal(captured.body.payload.name, '旅人很有礼貌');
+    assert.deepEqual(captured.body.payload.match, ['旅人', '礼貌']);
+    assert.equal(captured.body.evidence, 'npcs/鸿蒙/evidence.jsonl');
+    console.log('  ✓ remember() → POST /memory/remember with payload(name/kind/description/match) — zero-LLM fact write');
+
+    // ingest() — the gemma4-tolerant raw-dialogue extraction path
+    captured = null;
+    (globalThis as any).fetch = async (url: string, init: any) => { captured = { url, body: JSON.parse(init.body) }; return { ok: true, status: 200, json: async () => ({ ok: true, data: { ok: true } }) } as any; };
+    await c.ingest('旅人说他妹妹生病了', { aiggUrl: 'http://localhost:11434/v1', model: 'gemma4:latest', backend: 'http' });
+    assert.ok(captured.url.endsWith('/memory/ingest'), 'POST /memory/ingest');
+    assert.equal(captured.body.text, '旅人说他妹妹生病了');
+    assert.equal(captured.body.aigg_url, 'http://localhost:11434/v1', 'ingest passes the model backend');
+    console.log('  ✓ ingest() → POST /memory/ingest with text + model backend — raw-dialogue extraction');
   } finally {
     (globalThis as any).fetch = realFetch;
   }

@@ -143,6 +143,40 @@ export class AiggMemoryClient {
   }
 
   /**
+   * remember — write ONE structured fact straight into memory as a unit (no LLM,
+   * no repetition gate). The host's deterministic "remember this now" path: use it
+   * for a fact the NPC already has structured (a relationship note, a learned trap,
+   * a promise). For raw dialogue that needs extraction, use ingest(). `consolidate`
+   * does NOT extract — it only promotes already-structured observations, so this is
+   * the right write path for the MUD's known facts.
+   */
+  async remember(payload: { name?: string; slug?: string; kind?: string; description: string; match?: string[]; body?: string; asserted_by?: string; valid_from?: string }, opts?: { corpus?: string; evidence?: string }): Promise<{ ok?: boolean; units?: MemoryUnit[] }> {
+    return this.post('/memory/remember', {
+      corpus: opts?.corpus ?? this.defaultCorpus,
+      evidence: opts?.evidence ?? this.defaultEvidence,
+      payload,
+    });
+  }
+
+  /**
+   * ingest — extract typed units from RAW dialogue/text via the model (the
+   * gemma4-tolerant extraction path). Needs a model backend (aiggUrl/backend/model).
+   * For facts the host already has structured, prefer remember() (zero-cost).
+   */
+  async ingest(text: string, opts?: { corpus?: string; evidence?: string; write?: boolean; aiggUrl?: string; aiggKey?: string; model?: string; backend?: string }): Promise<{ ok?: boolean; units?: MemoryUnit[] }> {
+    return this.post('/memory/ingest', {
+      corpus: opts?.corpus ?? this.defaultCorpus,
+      evidence: opts?.evidence ?? this.defaultEvidence,
+      text,
+      write: opts?.write ?? true,
+      ...(opts?.aiggUrl ? { aigg_url: opts.aiggUrl } : {}),
+      ...(opts?.aiggKey ? { aigg_key: opts.aiggKey } : {}),
+      ...(opts?.model ? { model: opts.model } : {}),
+      ...(opts?.backend ? { backend: opts.backend } : {}),
+    });
+  }
+
+  /**
    * plan — synthesize forward intentions (kind=plan) from goals + beliefs (the
    * forward mirror of consolidate/reflect). `now` is required (the kernel ships
    * no clock). The server's planner needs a model: pass `aiggUrl`/`backend`/`model`
