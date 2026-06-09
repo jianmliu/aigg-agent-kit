@@ -15,6 +15,9 @@ export { applyTx, applyAll, stateRoot, emptyWorld, relKey, ammSwap } from './stf
 export type { WorldState, WorldTx, WorldEvent, StfNpc, MarketState, PredictionMarket } from './stf/world-stf';
 export { mulberry32, rollLuck } from './stf/luck';
 export type { LuckConfig, LuckEventTx } from './stf/luck';
+// DA seam: tick → DSN blob → on-chain commitTick(stateRoot, eventsHash) anchor.
+export { TickCommitter, ViemTickAnchor, tickEventsHash, verifyTickBlob } from './stf/tick-committer';
+export type { TickBlob, TickAnchor, TickCommitResult, ViemTickAnchorOptions } from './stf/tick-committer';
 export { LlmInferenceOracle } from './stf/inference-oracle';
 export type { InferenceOracle, OracleInput, OracleOutput, LlmInferenceOracleOptions } from './stf/inference-oracle';
 export { PlanningOracle } from './stf/planning-oracle';
