@@ -163,12 +163,13 @@ export class AiggMemoryClient {
    * gemma4-tolerant extraction path). Needs a model backend (aiggUrl/backend/model).
    * For facts the host already has structured, prefer remember() (zero-cost).
    */
-  async ingest(text: string, opts?: { corpus?: string; evidence?: string; write?: boolean; aiggUrl?: string; aiggKey?: string; model?: string; backend?: string }): Promise<{ ok?: boolean; units?: MemoryUnit[] }> {
+  async ingest(text: string, opts?: { corpus?: string; evidence?: string; write?: boolean; aiggUrl?: string; aiggKey?: string; model?: string; backend?: string; timeout?: number }): Promise<{ ok?: boolean; units?: MemoryUnit[] }> {
     return this.post('/memory/ingest', {
       corpus: opts?.corpus ?? this.defaultCorpus,
       evidence: opts?.evidence ?? this.defaultEvidence,
       text,
       write: opts?.write ?? true,
+      timeout: opts?.timeout ?? 180,
       ...(opts?.aiggUrl ? { aigg_url: opts.aiggUrl } : {}),
       ...(opts?.aiggKey ? { aigg_key: opts.aiggKey } : {}),
       ...(opts?.model ? { model: opts.model } : {}),
@@ -183,11 +184,12 @@ export class AiggMemoryClient {
    * (e.g. Ollama's OpenAI endpoint) — or `backend:"claude-cli"`. The kernel never
    * acts on a plan; the host (MUD) reads it and decides.
    */
-  async plan(opts: { now: string; corpus?: string; goals?: string[]; write?: boolean; horizon?: string; aiggUrl?: string; aiggKey?: string; model?: string; backend?: string }): Promise<PlanResult> {
+  async plan(opts: { now: string; corpus?: string; goals?: string[]; write?: boolean; horizon?: string; aiggUrl?: string; aiggKey?: string; model?: string; backend?: string; timeout?: number }): Promise<PlanResult> {
     return this.post('/memory/plan', {
       corpus: opts.corpus ?? this.defaultCorpus,
       now: opts.now,
       write: opts.write ?? false,
+      timeout: opts.timeout ?? 180, // a local model is slow (cold-load + generate) — 30s default times out
       ...(opts.goals ? { goals: opts.goals } : {}),
       ...(opts.horizon ? { horizon: opts.horizon } : {}),
       ...(opts.aiggUrl ? { aigg_url: opts.aiggUrl } : {}),
