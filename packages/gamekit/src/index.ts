@@ -11,8 +11,8 @@ export { SharedWorld } from './shared-world';
 export type { SharedWorldOptions, NpcRecord, NpcSummary, TalkResult, OnchainBalanceProvider } from './shared-world';
 
 // Deterministic world STF + AI oracle boundary (sequencer / Autonomys-Domain ready).
-export { applyTx, applyAll, stateRoot, emptyWorld, relKey } from './stf/world-stf';
-export type { WorldState, WorldTx, WorldEvent, StfNpc } from './stf/world-stf';
+export { applyTx, applyAll, stateRoot, emptyWorld, relKey, ammSwap } from './stf/world-stf';
+export type { WorldState, WorldTx, WorldEvent, StfNpc, MarketState } from './stf/world-stf';
 export { mulberry32, rollLuck } from './stf/luck';
 export type { LuckConfig, LuckEventTx } from './stf/luck';
 export { LlmInferenceOracle } from './stf/inference-oracle';

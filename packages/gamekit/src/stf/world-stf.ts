@@ -31,7 +31,14 @@ export interface WorldState {
   relationships: Record<string, RelationshipState>;
   /** `${playerId}|${flag}` → value. */
   flags: Record<string, number>;
+  /** per-agent USDC balance (pump-town economy; absent in pure-MUD worlds). */
+  usdc?: Record<string, number>;
+  /** the constant-product AMM pool (pump-town; absent until `initMarket`). */
+  market?: MarketState;
 }
+
+/** pump-town's constant-product AMM pool. Spot price p_t = usdcReserve/gccReserve (USDC per GCC). */
+export interface MarketState { gccReserve: number; usdcReserve: number; supply: number }
 
 /** Deterministic transactions — the committed state transitions (mirror SharedWorld ops). */
 export type WorldTx =
@@ -49,7 +56,16 @@ export type WorldTx =
    * `gccFactor` = multiplicative luck (balance *= f, e.g. 1.5 good / 0.5 bad);
    * `gccDelta` = additive luck (balance += d, d<0 = bad). Both optional/composable.
    */
-  | { type: 'luckEvent'; npcId: string; gccDelta?: number; gccFactor?: number; affinityDelta?: number; playerId?: string; label?: string; now: number };
+  | { type: 'luckEvent'; npcId: string; gccDelta?: number; gccFactor?: number; affinityDelta?: number; playerId?: string; label?: string; now: number }
+  // ── pump-town economic core (the high-stake, on-chain-executed subset) ──────
+  /** Seed the constant-product AMM pool + initial GCC supply (genesis-ish). */
+  | { type: 'initMarket'; gccReserve: number; usdcReserve: number; supply?: number }
+  /** An AMM swap by an agent — pump-town's CHEATABLE core (deterministic pricing,
+   *  no fake fills / no front-run beyond tx order). buy: `amountIn` USDC → GCC out;
+   *  sell: `amountIn` GCC → USDC out. */
+  | { type: 'trade'; agentId: string; side: 'buy' | 'sell'; amountIn: number; now: number }
+  /** Pay `perGcc` USDC to every GCC holder (the v_t value anchor / income distribution). */
+  | { type: 'dividend'; perGcc: number };
 
 /** Events emitted by a tx — the receipt/log (also fraud-proof comparable). */
 export type WorldEvent =
@@ -63,9 +79,30 @@ export type WorldEvent =
   | { kind: 'burned'; npcId: string; gccCost: number; balanceGcc: number }
   /** an exogenous luck shock; `gccAfter - gccBefore` IS the realized luck score (exact, auditable). */
   | { kind: 'luck'; npcId: string; label?: string; gccBefore: number; gccAfter: number }
+  | { kind: 'marketInit'; gccReserve: number; usdcReserve: number; supply: number }
+  | { kind: 'traded'; agentId: string; side: 'buy' | 'sell'; amountIn: number; out: number; price: number; gccReserve: number; usdcReserve: number }
+  | { kind: 'dividend'; perGcc: number; totalPaid: number }
   | { kind: 'rejected'; reason: string; tx?: WorldTx; effect?: Effect };
 
 export const relKey = (npcId: string, playerId: string) => `${npcId}|${playerId}`;
+
+/**
+ * Constant-product AMM (x·y=k). PURE. `side:'buy'` spends `amountIn` USDC for GCC out;
+ * `side:'sell'` puts `amountIn` GCC in for USDC out. No fee in this first cut.
+ * NB: float math here is the REFERENCE implementation; a Solidity `PumpWorld` port
+ * uses fixed-point and the differential test must reconcile rounding.
+ */
+export function ammSwap(m: MarketState, side: 'buy' | 'sell', amountIn: number): { out: number; price: number; gccReserve: number; usdcReserve: number } {
+  const k = m.gccReserve * m.usdcReserve;
+  if (side === 'buy') {
+    const usdcReserve = m.usdcReserve + amountIn;
+    const gccReserve = k / usdcReserve;
+    return { out: m.gccReserve - gccReserve, price: usdcReserve / gccReserve, gccReserve, usdcReserve };
+  }
+  const gccReserve = m.gccReserve + amountIn;
+  const usdcReserve = k / gccReserve;
+  return { out: m.usdcReserve - usdcReserve, price: usdcReserve / gccReserve, gccReserve, usdcReserve };
+}
 
 export function emptyWorld(): WorldState {
   return { npcs: {}, registry: [], balances: {}, relationships: {}, flags: {} };
@@ -152,6 +189,45 @@ export function applyTx(prev: WorldState, tx: WorldTx, rules: GameRules): { stat
         state.relationships[key] = { ...rel, affinity: rel.affinity + tx.affinityDelta, lastInteractionAt: tx.now };
       }
       events.push({ kind: 'luck', npcId: tx.npcId, label: tx.label, gccBefore: before, gccAfter: after });
+      break;
+    }
+    case 'initMarket': {
+      state.market = { gccReserve: tx.gccReserve, usdcReserve: tx.usdcReserve, supply: tx.supply ?? 0 };
+      events.push({ kind: 'marketInit', gccReserve: tx.gccReserve, usdcReserve: tx.usdcReserve, supply: state.market.supply });
+      break;
+    }
+    case 'trade': {
+      if (!state.market) { events.push({ kind: 'rejected', reason: 'no_market', tx }); break; }
+      if (!(tx.amountIn > 0)) { events.push({ kind: 'rejected', reason: 'bad_amount', tx }); break; }
+      state.usdc ??= {};
+      const usdcBal = state.usdc[tx.agentId] ?? 0;
+      const gccBal = state.balances[tx.agentId] ?? 0;
+      if (tx.side === 'buy' && usdcBal < tx.amountIn) { events.push({ kind: 'rejected', reason: 'insufficient_usdc', tx }); break; }
+      if (tx.side === 'sell' && gccBal < tx.amountIn) { events.push({ kind: 'rejected', reason: 'insufficient_gcc', tx }); break; }
+      const sw = ammSwap(state.market, tx.side, tx.amountIn);
+      state.market.gccReserve = sw.gccReserve;
+      state.market.usdcReserve = sw.usdcReserve;
+      if (tx.side === 'buy') {
+        state.usdc[tx.agentId] = usdcBal - tx.amountIn;       // USDC moves agent → reserve
+        state.balances[tx.agentId] = gccBal + sw.out;          // GCC moves reserve → agent
+      } else {
+        state.balances[tx.agentId] = gccBal - tx.amountIn;
+        state.usdc[tx.agentId] = usdcBal + sw.out;
+      }
+      events.push({ kind: 'traded', agentId: tx.agentId, side: tx.side, amountIn: tx.amountIn, out: sw.out, price: sw.price, gccReserve: sw.gccReserve, usdcReserve: sw.usdcReserve });
+      break;
+    }
+    case 'dividend': {
+      state.usdc ??= {};
+      let totalPaid = 0;
+      for (const id of Object.keys(state.balances)) {
+        const g = state.balances[id] ?? 0;
+        if (g <= 0) continue;
+        const pay = g * tx.perGcc;
+        state.usdc[id] = (state.usdc[id] ?? 0) + pay;
+        totalPaid += pay;
+      }
+      events.push({ kind: 'dividend', perGcc: tx.perGcc, totalPaid });
       break;
     }
   }
