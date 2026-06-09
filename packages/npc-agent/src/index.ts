@@ -50,6 +50,8 @@ export { ClaudeCliProvider } from './inference/claude-cli-provider';
 export type { ClaudeCliProviderOptions } from './inference/claude-cli-provider';
 export { ProxyProvider } from './inference/proxy-provider';
 export type { ProxyProviderOptions } from './inference/proxy-provider';
+export { ZeroGComputeProvider, ZEROG_ROUTER_TESTNET, ZEROG_ROUTER_MAINNET } from './inference/zerog-compute-provider';
+export type { ZeroGComputeProviderOptions } from './inference/zerog-compute-provider';
 // NOTE: ClaudeProvider is intentionally NOT re-exported here — it pulls
 // @anthropic-ai/sdk (node-heavy: node:fs, child_process) which must not enter the
 // browser bundle. Node-only consumers deep-import it:
