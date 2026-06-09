@@ -304,8 +304,11 @@ export class SharedWorld {
    * Layout: npcs/<npcId>/memory/ + npcs/<npcId>/evidence.jsonl so every NPC
    * gets its own isolated typed-memory corpus.
    */
-  private memoryCorpus(npcId: string): string { return `npcs/${npcId}/memory`; }
-  private memoryEvidence(npcId: string): string { return `npcs/${npcId}/evidence.jsonl`; }
+  /** path-safe corpus segment — npcIds contain ':' (e.g. "npc:鸿蒙:owner"), which the
+   *  memory server rejects in paths. CJK is fine; only special chars are replaced. */
+  private safeNpcSeg(npcId: string): string { return npcId.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_'); }
+  private memoryCorpus(npcId: string): string { return `npcs/${this.safeNpcSeg(npcId)}/memory`; }
+  private memoryEvidence(npcId: string): string { return `npcs/${this.safeNpcSeg(npcId)}/evidence.jsonl`; }
 
   private personaFor(rec: NpcRecord, memoryBundle?: string): NpcPersona {
     const role = [rec.background || rec.name, memoryBundle].filter(Boolean).join('\n\n');
@@ -400,25 +403,23 @@ export class SharedWorld {
       ...(oracleOut.attestation ? { attestation: oracleOut.attestation } : {})
     };
 
-    // --- memory: observe this interaction (fire-and-forget, never blocks) ----
+    // --- memory: REMEMBER this interaction as a structured fact (fire-and-forget) ---
+    // The payload is already structured (the host has it), so we write it straight
+    // in as a unit via /memory/remember (zero-LLM, deterministic), immediately
+    // recallable by select() on the NPC's NEXT turn. NB: consolidate does NOT
+    // extract — it only promotes already-structured observations — so writing the
+    // fact directly is the correct path; raw-dialogue extraction would use ingest().
     if (this.memory && !starving) {
       const corpus = this.memoryCorpus(input.npcId);
       const evidence = this.memoryEvidence(input.npcId);
-      const obsPayload = {
-        slug: input.visitorId.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_'),
+      this.memory.remember({
+        slug: `${input.visitorId.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_')}_${now}`,
         name: input.visitorId,
-        kind: 'episodic' as const,
-        description: `${input.visitorId} 与 ${rec.name} 的互动：好感 ${rel.affinity}（+${result.dAffinity}）`,
+        kind: 'episodic',
+        description: `${input.visitorId} 说：「${input.text}」`,
         match: [input.visitorId, rec.name, '好感', 'affinity', 'relationship'],
-        body: `「${input.text}」→ 好感 ${rel.affinity}，${rec.name} 回应：「${oracleOut.say ?? '…'}」`,
-      };
-      // fire-and-forget: errors are logged, never thrown
-      this.memory.observe(obsPayload, { corpus, evidence }).catch(() => {});
-
-      // --- memory: Dream consolidation when NPC is "充盈" (rich tier) --------
-      if (richTier) {
-        this.memory.consolidate({ corpus, evidence, write: true }).catch(() => {});
-      }
+        body: `${rec.name} 回应：「${oracleOut.say ?? '…'}」（好感 ${rel.affinity}，+${result.dAffinity}）`,
+      }, { corpus, evidence }).catch(() => { /* memory service down — talk never blocks */ });
     }
 
     return result;

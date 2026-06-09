@@ -1,11 +1,11 @@
 /**
  * Headless smoke: SharedWorld + AiggMemoryClient against a FAKE agentmf serve
  * (a tiny node:http server that mimics /memory/* endpoints in-process). Proves:
- *   1. select() is called before each talk() → memoryBundle injected into persona
- *   2. observe() is called after each talk() with the interaction summary
- *   3. consolidate(write:true) is called when the NPC is in the "充盈" rich tier
- *   4. select/observe/consolidate errors are swallowed — talk() never throws
- *   5. without a memory client, talk() behaves identically to before (regression)
+ *   1. select() is called before each talk() → memoryBundle injected into persona (recall)
+ *   2. remember() is called after each talk() with the structured interaction fact
+ *      (zero-LLM, immediately recallable; consolidate does NOT extract, so we write directly)
+ *   3. select/remember errors are swallowed — talk() never throws
+ *   4. without a memory client, talk() behaves identically to before (regression)
  *
  * Run: pnpm --filter @onchainpal/gamekit test:memory
  */
@@ -34,10 +34,8 @@ function startFakeMemoryServer(): Promise<{ port: number; calls: Call[]; close()
         res.writeHead(200);
 
         // canned responses keyed by path
-        if (req.url === '/memory/observe') {
-          res.end(JSON.stringify({ ok: true, diagnostics: [], data: { event_id: 'evt1', fingerprint: 'fp', timestamp: 't', source: 'observation', outcome: null } }));
-        } else if (req.url === '/memory/consolidate') {
-          res.end(JSON.stringify({ ok: true, diagnostics: [], data: { proposals: [{ proposal_id: 'p1', title: 'remember: visitor' }], gates: [{ name: 'units_parse', passed: true, detail: '' }], gates_ok: true, written: body.write === true, units_after: [] } }));
+        if (req.url === '/memory/remember') {
+          res.end(JSON.stringify({ ok: true, diagnostics: [], data: { ok: true, units: [{ name: String((body.payload as any)?.name ?? '') }] } }));
         } else if (req.url === '/memory/select') {
           // return a canned memory bundle about 游侠
           res.end(JSON.stringify({ ok: true, diagnostics: [], data: {
@@ -88,11 +86,11 @@ async function test_select_injected_before_llm(port: number, calls: Call[]) {
 
   const selectCalls = calls.filter((c) => c.path === '/memory/select');
   assert.ok(selectCalls.length >= 1, 'select called before LLM');
-  assert.equal(selectCalls[0].body.corpus, `npcs/${id}/memory`, 'select uses per-NPC corpus');
+  assert.equal(selectCalls[0].body.corpus, `npcs/${id.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_')}/memory`, 'select uses per-NPC corpus (path-safe)');
   console.log('  ✓ select() called before LLM; per-NPC corpus used');
 }
 
-async function test_observe_fires_after_talk(port: number, calls: Call[]) {
+async function test_remember_fires_after_talk(port: number, calls: Call[]) {
   const client = new AiggMemoryClient({ baseUrl: `http://127.0.0.1:${port}` });
   const world = new SharedWorld({ store: new InMemoryStore(), provider: new ScriptedProvider(), metabolism: richMetabolism, memory: client });
   const id = await world.createNpc({ name: '酒剑仙', owner: 'user:A', background: 'bg', room: '酒馆', startGcc: 0.0009 });
@@ -101,43 +99,13 @@ async function test_observe_fires_after_talk(port: number, calls: Call[]) {
   await world.talk({ npcId: id, visitorId: '游侠', text: '来壶酒' });
   await sleep(50); // fire-and-forget
 
-  const obsCalls = calls.filter((c) => c.path === '/memory/observe');
-  assert.ok(obsCalls.length >= 1, 'observe fired after talk');
-  const payload = obsCalls[0].body.payload as Record<string, unknown>;
-  assert.ok(String(payload.body).includes('好感'), 'observe payload includes affinity info');
-  assert.ok(String(payload.match).includes('affinity'), 'observe payload includes match terms');
-  console.log('  ✓ observe() fired after talk; payload contains affinity + match terms');
-}
-
-async function test_consolidate_triggers_on_rich_tier(port: number, calls: Call[]) {
-  const client = new AiggMemoryClient({ baseUrl: `http://127.0.0.1:${port}` });
-  // start with RICH balance (> 0.0005 → tier 'r')
-  const world = new SharedWorld({ store: new InMemoryStore(), provider: new ScriptedProvider(), metabolism: richMetabolism, memory: client });
-  const id = await world.createNpc({ name: '酒剑仙', owner: 'user:A', background: 'bg', room: '酒馆', startGcc: 0.0009 });
-
-  calls.length = 0;
-  await world.talk({ npcId: id, visitorId: '游侠', text: '论剑' });
-  await sleep(50);
-
-  const consolCalls = calls.filter((c) => c.path === '/memory/consolidate');
-  assert.ok(consolCalls.length >= 1, 'consolidate triggered on rich tier');
-  assert.equal(consolCalls[0].body.write, true, 'consolidate called with write=true');
-  console.log('  ✓ consolidate(write:true) triggered when tier is "充盈"');
-}
-
-async function test_consolidate_skipped_on_lean_tier(port: number, calls: Call[]) {
-  const client = new AiggMemoryClient({ baseUrl: `http://127.0.0.1:${port}` });
-  // lean balance (0.0002 → tier 'l', not rich)
-  const world = new SharedWorld({ store: new InMemoryStore(), provider: new ScriptedProvider(), metabolism: richMetabolism, memory: client });
-  const id = await world.createNpc({ name: '酒剑仙', owner: 'user:A', background: 'bg', room: '酒馆', startGcc: 0.0002 });
-
-  calls.length = 0;
-  await world.talk({ npcId: id, visitorId: '游侠', text: '论剑' });
-  await sleep(50);
-
-  const consolCalls = calls.filter((c) => c.path === '/memory/consolidate');
-  assert.equal(consolCalls.length, 0, 'consolidate NOT triggered on lean tier');
-  console.log('  ✓ consolidate NOT triggered when tier is "清醒" (lean) — saves cost');
+  const remCalls = calls.filter((c) => c.path === '/memory/remember');
+  assert.ok(remCalls.length >= 1, 'remember fired after talk (structured fact)');
+  const payload = remCalls[0].body.payload as Record<string, unknown>;
+  assert.ok(String(payload.description).includes('来壶酒'), 'remember captures what the visitor said (recallable next turn)');
+  assert.ok(String(payload.match).includes('affinity'), 'remember payload has match terms (so select recalls it)');
+  assert.equal(payload.name, '游侠', 'remember keyed by visitor');
+  console.log('  ✓ remember() fired after talk; structured fact captures the visitor utterance + match terms');
 }
 
 async function test_memory_errors_do_not_break_talk(port: number, _calls: Call[]) {
@@ -175,9 +143,7 @@ async function main() {
   try {
     console.log(`fake agentmf serve on :${port}\n`);
     await test_select_injected_before_llm(port, calls);
-    await test_observe_fires_after_talk(port, calls);
-    await test_consolidate_triggers_on_rich_tier(port, calls);
-    await test_consolidate_skipped_on_lean_tier(port, calls);
+    await test_remember_fires_after_talk(port, calls);
     await test_memory_errors_do_not_break_talk(port, calls);
     await test_without_memory_client_unchanged(port, calls);
   } finally {
