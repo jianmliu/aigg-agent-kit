@@ -35,10 +35,27 @@ export interface WorldState {
   usdc?: Record<string, number>;
   /** the constant-product AMM pool (pump-town; absent until `initMarket`). */
   market?: MarketState;
+  /** marketId → binary prediction market, resolved INTERNALLY by the AMM price (pump-town). */
+  markets?: Record<string, PredictionMarket>;
 }
 
 /** pump-town's constant-product AMM pool. Spot price p_t = usdcReserve/gccReserve (USDC per GCC). */
 export interface MarketState { gccReserve: number; usdcReserve: number; supply: number }
+
+/**
+ * A binary, parimutuel prediction market. Resolves YES iff the AMM spot price
+ * `p_t >= threshold` AT RESOLUTION TIME — i.e. the world's OWN on-chain price is
+ * the truth (no external oracle). "by tick T" is enforced by WHEN `resolveMarket`
+ * is submitted. Winners split the whole pool pro-rata to their winning-side stake.
+ */
+export interface PredictionMarket {
+  threshold: number;                                  // resolves YES if p_t >= threshold (USDC/GCC)
+  status: 'open' | 'resolved';
+  yesPool: number;                                    // total USDC staked YES
+  noPool: number;
+  stakes: Record<string, { yes: number; no: number }>;// per-agent stake
+  outcome?: 'YES' | 'NO';
+}
 
 /** Deterministic transactions — the committed state transitions (mirror SharedWorld ops). */
 export type WorldTx =
@@ -65,7 +82,13 @@ export type WorldTx =
    *  sell: `amountIn` GCC → USDC out. */
   | { type: 'trade'; agentId: string; side: 'buy' | 'sell'; amountIn: number; now: number }
   /** Pay `perGcc` USDC to every GCC holder (the v_t value anchor / income distribution). */
-  | { type: 'dividend'; perGcc: number };
+  | { type: 'dividend'; perGcc: number }
+  /** Open a binary prediction market on "p_t >= threshold". */
+  | { type: 'openMarket'; marketId: string; threshold: number; now: number }
+  /** Stake `amount` USDC on YES/NO of an open market (parimutuel). */
+  | { type: 'bet'; marketId: string; agentId: string; side: 'YES' | 'NO'; amount: number; now: number }
+  /** Resolve a market by the CURRENT AMM price (internal, deterministic) + pay winners pro-rata. */
+  | { type: 'resolveMarket'; marketId: string; now: number };
 
 /** Events emitted by a tx — the receipt/log (also fraud-proof comparable). */
 export type WorldEvent =
@@ -82,6 +105,9 @@ export type WorldEvent =
   | { kind: 'marketInit'; gccReserve: number; usdcReserve: number; supply: number }
   | { kind: 'traded'; agentId: string; side: 'buy' | 'sell'; amountIn: number; out: number; price: number; gccReserve: number; usdcReserve: number }
   | { kind: 'dividend'; perGcc: number; totalPaid: number }
+  | { kind: 'marketOpened'; marketId: string; threshold: number }
+  | { kind: 'betPlaced'; marketId: string; agentId: string; side: 'YES' | 'NO'; amount: number; yesPool: number; noPool: number }
+  | { kind: 'marketResolved'; marketId: string; outcome: 'YES' | 'NO'; price: number; totalPool: number; payouts: number }
   | { kind: 'rejected'; reason: string; tx?: WorldTx; effect?: Effect };
 
 export const relKey = (npcId: string, playerId: string) => `${npcId}|${playerId}`;
@@ -228,6 +254,63 @@ export function applyTx(prev: WorldState, tx: WorldTx, rules: GameRules): { stat
         totalPaid += pay;
       }
       events.push({ kind: 'dividend', perGcc: tx.perGcc, totalPaid });
+      break;
+    }
+    case 'openMarket': {
+      state.markets ??= {};
+      if (state.markets[tx.marketId]) { events.push({ kind: 'rejected', reason: 'market_exists', tx }); break; }
+      state.markets[tx.marketId] = { threshold: tx.threshold, status: 'open', yesPool: 0, noPool: 0, stakes: {} };
+      events.push({ kind: 'marketOpened', marketId: tx.marketId, threshold: tx.threshold });
+      break;
+    }
+    case 'bet': {
+      const m = state.markets?.[tx.marketId];
+      if (!m) { events.push({ kind: 'rejected', reason: 'no_market', tx }); break; }
+      if (m.status !== 'open') { events.push({ kind: 'rejected', reason: 'market_closed', tx }); break; }
+      if (!(tx.amount > 0)) { events.push({ kind: 'rejected', reason: 'bad_amount', tx }); break; }
+      state.usdc ??= {};
+      const bal = state.usdc[tx.agentId] ?? 0;
+      if (bal < tx.amount) { events.push({ kind: 'rejected', reason: 'insufficient_usdc', tx }); break; }
+      state.usdc[tx.agentId] = bal - tx.amount;            // stake escrowed into the pool
+      const st = m.stakes[tx.agentId] ?? { yes: 0, no: 0 };
+      if (tx.side === 'YES') { st.yes += tx.amount; m.yesPool += tx.amount; }
+      else { st.no += tx.amount; m.noPool += tx.amount; }
+      m.stakes[tx.agentId] = st;
+      events.push({ kind: 'betPlaced', marketId: tx.marketId, agentId: tx.agentId, side: tx.side, amount: tx.amount, yesPool: m.yesPool, noPool: m.noPool });
+      break;
+    }
+    case 'resolveMarket': {
+      const m = state.markets?.[tx.marketId];
+      if (!m) { events.push({ kind: 'rejected', reason: 'no_market', tx }); break; }
+      if (m.status !== 'open') { events.push({ kind: 'rejected', reason: 'already_resolved', tx }); break; }
+      if (!state.market) { events.push({ kind: 'rejected', reason: 'no_amm_price', tx }); break; }
+      const price = state.market.usdcReserve / state.market.gccReserve;   // ← internal, deterministic truth
+      const outcome: 'YES' | 'NO' = price >= m.threshold ? 'YES' : 'NO';
+      const totalPool = m.yesPool + m.noPool;
+      const winPool = outcome === 'YES' ? m.yesPool : m.noPool;
+      state.usdc ??= {};
+      let payouts = 0;
+      if (winPool === 0) {
+        // no winners → refund every staker their whole stake (pool conserved)
+        for (const [id, st] of Object.entries(m.stakes)) {
+          const refund = st.yes + st.no;
+          if (refund <= 0) continue;
+          state.usdc[id] = (state.usdc[id] ?? 0) + refund;
+          payouts += refund;
+        }
+      } else {
+        for (const [id, st] of Object.entries(m.stakes)) {
+          const winStake = outcome === 'YES' ? st.yes : st.no;
+          if (winStake <= 0) continue;
+          const pay = (winStake / winPool) * totalPool;     // parimutuel pro-rata (losers fund winners)
+          state.usdc[id] = (state.usdc[id] ?? 0) + pay;
+          payouts += pay;
+        }
+      }
+      m.status = 'resolved';
+      m.outcome = outcome;
+      m.yesPool = 0; m.noPool = 0;   // escrow drained → no stale USDC double-counted in state
+      events.push({ kind: 'marketResolved', marketId: tx.marketId, outcome, price, totalPool, payouts });
       break;
     }
   }

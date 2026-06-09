@@ -98,6 +98,59 @@ function test_deterministic_replay() {
   console.log('  ✓ applyAll replays bit-for-bit → reproducible stateRoot');
 }
 
+// total USDC anywhere in the system: agent balances + AMM reserve + escrowed market pools
+const totalUsdcAll = (s: WorldState) =>
+  Object.values(s.usdc ?? {}).reduce((x, y) => x + y, 0) +
+  (s.market?.usdcReserve ?? 0) +
+  Object.values(s.markets ?? {}).reduce((x, m) => x + m.yesPool + m.noPool, 0);
+
+function test_prediction_resolves_on_amm_price() {
+  let s = apply(emptyWorld(), { type: 'initMarket', gccReserve: 1000, usdcReserve: 100, supply: 1000 });
+  s.usdc = { a1: 50, a2: 50, whale: 200 };
+  const usdc0 = totalUsdcAll(s);
+  s = apply(s, { type: 'openMarket', marketId: 'm1', threshold: 0.15, now: 1 });
+  s = apply(s, { type: 'bet', marketId: 'm1', agentId: 'a1', side: 'YES', amount: 20, now: 2 }); // YES pool 20
+  s = apply(s, { type: 'bet', marketId: 'm1', agentId: 'a2', side: 'NO', amount: 30, now: 3 });  // NO pool 30
+  assert.equal(s.usdc!.a1, 30, 'a1 staked 20 → 30 left'); assert.equal(s.usdc!.a2, 20, 'a2 staked 30 → 20 left');
+  // whale buys → price climbs well above 0.15
+  s = apply(s, { type: 'trade', agentId: 'whale', side: 'buy', amountIn: 100, now: 4 });
+  const price = s.market!.usdcReserve / s.market!.gccReserve;
+  assert.ok(price >= 0.15, 'price pushed above threshold → YES');
+  s = apply(s, { type: 'resolveMarket', marketId: 'm1', now: 5 });
+  const m = s.markets!.m1;
+  assert.equal(m.status, 'resolved'); assert.equal(m.outcome, 'YES', 'resolved by the AMM price, not an oracle');
+  assert.ok(near(s.usdc!.a1, 80), 'a1 (only YES staker) takes the whole 50 pool → 30 + 50 = 80');
+  assert.equal(s.usdc!.a2, 20, 'a2 lost the NO stake (0 payout)');
+  assert.ok(near(totalUsdcAll(s), usdc0), 'USDC conserved end-to-end (pool redistributed, none minted)');
+  console.log('  ✓ prediction market resolves on the AMM price (internal, no oracle); parimutuel pro-rata; USDC conserved');
+}
+
+function test_prediction_refund_when_no_winners() {
+  let s = apply(emptyWorld(), { type: 'initMarket', gccReserve: 1000, usdcReserve: 100 });
+  s.usdc = { a1: 50, a2: 50 };
+  s = apply(s, { type: 'openMarket', marketId: 'm2', threshold: 0.5, now: 1 }); // price 0.1, no trades → resolves NO
+  s = apply(s, { type: 'bet', marketId: 'm2', agentId: 'a1', side: 'YES', amount: 20, now: 2 });
+  s = apply(s, { type: 'bet', marketId: 'm2', agentId: 'a2', side: 'YES', amount: 10, now: 3 }); // nobody on NO
+  s = apply(s, { type: 'resolveMarket', marketId: 'm2', now: 4 });
+  assert.equal(s.markets!.m2.outcome, 'NO', 'price 0.1 < 0.5 → NO');
+  assert.equal(s.usdc!.a1, 50, 'no NO-winners → a1 refunded'); assert.equal(s.usdc!.a2, 50, 'a2 refunded');
+  console.log('  ✓ no winners on the resolved side → all stakes refunded (no value lost)');
+}
+
+function test_prediction_rejects() {
+  let s = apply(emptyWorld(), { type: 'initMarket', gccReserve: 1000, usdcReserve: 100 });
+  s.usdc = { a1: 50 };
+  // bet on nonexistent market
+  assert.equal((applyTx(s, { type: 'bet', marketId: 'nope', agentId: 'a1', side: 'YES', amount: 5, now: 1 }, rules).events[0] as any).reason, 'no_market');
+  s = apply(s, { type: 'openMarket', marketId: 'm3', threshold: 0.05, now: 1 });
+  s = apply(s, { type: 'bet', marketId: 'm3', agentId: 'a1', side: 'YES', amount: 5, now: 2 });
+  s = apply(s, { type: 'resolveMarket', marketId: 'm3', now: 3 }); // price 0.1 >= 0.05 → YES
+  // double resolve + bet after close
+  assert.equal((applyTx(s, { type: 'resolveMarket', marketId: 'm3', now: 4 }, rules).events[0] as any).reason, 'already_resolved');
+  assert.equal((applyTx(s, { type: 'bet', marketId: 'm3', agentId: 'a1', side: 'NO', amount: 5, now: 5 }, rules).events[0] as any).reason, 'market_closed');
+  console.log('  ✓ rejects: no_market / already_resolved / market_closed');
+}
+
 function test_mud_world_untouched() {
   // a pure-MUD world never grows usdc/market keys → MUD stateRoot byte-identical to before
   const s = apply(emptyWorld(), { type: 'createNpc', id: 'npc:x', name: 'X', owner: 'u', room: 'r', background: 'b' });
@@ -113,6 +166,9 @@ function main() {
   test_sell_lowers_price_roundtrip();
   test_dividend_pays_per_gcc();
   test_rejects();
+  test_prediction_resolves_on_amm_price();
+  test_prediction_refund_when_no_winners();
+  test_prediction_rejects();
   test_deterministic_replay();
   test_mud_world_untouched();
   console.log('\nPUMPTOWN-STF SMOKE PASSED ✅');
