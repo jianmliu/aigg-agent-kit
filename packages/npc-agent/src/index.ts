@@ -71,7 +71,7 @@ export { DefaultGameRules } from './resolver/game-rules';
 export { InMemoryStore } from './memory/memory-store';
 export { RelationshipMemory } from './memory/relationship';
 export { AiggMemoryClient } from './memory/aigg-memory-client';
-export type { AiggMemoryClientOptions, ObservePayload, ObserveResult, SelectResult, ConsolidateResult, UnitsResult, MemoryUnit } from './memory/aigg-memory-client';
+export type { AiggMemoryClientOptions, ObservePayload, ObserveResult, SelectResult, ConsolidateResult, UnitsResult, MemoryUnit, PlanResult, PlanUnit } from './memory/aigg-memory-client';
 export { AutoDriveStore } from './store/auto-drive-store';
 export type { AutoDriveClient, AutoDriveStoreOptions, MemoryHistoryEntry } from './store/auto-drive-store';
 export { TieredStore, durableExceptBalance, crossServerStable } from './store/tiered-store';
