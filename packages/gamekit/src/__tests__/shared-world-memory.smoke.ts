@@ -36,6 +36,8 @@ function startFakeMemoryServer(): Promise<{ port: number; calls: Call[]; close()
         // canned responses keyed by path
         if (req.url === '/memory/remember') {
           res.end(JSON.stringify({ ok: true, diagnostics: [], data: { ok: true, units: [{ name: String((body.payload as any)?.name ?? '') }] } }));
+        } else if (req.url === '/memory/plan') {
+          res.end(JSON.stringify({ ok: true, diagnostics: [], data: { plans: [{ slug: 'p1', name: '帮助访客', description: '下次备好酒迎客' }], written: ['memory/p1/SKILL.md'] } }));
         } else if (req.url === '/memory/select') {
           // return a canned memory bundle about 游侠
           res.end(JSON.stringify({ ok: true, diagnostics: [], data: {
@@ -95,17 +97,38 @@ async function test_remember_fires_after_talk(port: number, calls: Call[]) {
   const world = new SharedWorld({ store: new InMemoryStore(), provider: new ScriptedProvider(), metabolism: richMetabolism, memory: client });
   const id = await world.createNpc({ name: '酒剑仙', owner: 'user:A', background: 'bg', room: '酒馆', startGcc: 0.0009 });
 
+  await sleep(50); // let createNpc's goal-seed remember settle first
   calls.length = 0;
   await world.talk({ npcId: id, visitorId: '游侠', text: '来壶酒' });
   await sleep(50); // fire-and-forget
 
-  const remCalls = calls.filter((c) => c.path === '/memory/remember');
-  assert.ok(remCalls.length >= 1, 'remember fired after talk (structured fact)');
+  // the interaction remember (kind=episodic, the visitor utterance) — distinct from the goal seed
+  const remCalls = calls.filter((c) => c.path === '/memory/remember' && (c.body.payload as any)?.kind === 'episodic');
+  assert.ok(remCalls.length >= 1, 'remember fired after talk (structured episodic fact)');
   const payload = remCalls[0].body.payload as Record<string, unknown>;
   assert.ok(String(payload.description).includes('来壶酒'), 'remember captures what the visitor said (recallable next turn)');
   assert.ok(String(payload.match).includes('affinity'), 'remember payload has match terms (so select recalls it)');
   assert.equal(payload.name, '游侠', 'remember keyed by visitor');
-  console.log('  ✓ remember() fired after talk; structured fact captures the visitor utterance + match terms');
+  console.log('  ✓ remember() fired after talk; structured episodic fact captures the visitor utterance');
+}
+
+async function test_goal_seed_and_plan(port: number, calls: Call[]) {
+  const client = new AiggMemoryClient({ baseUrl: `http://127.0.0.1:${port}` });
+  const world = new SharedWorld({ store: new InMemoryStore(), provider: new ScriptedProvider(), metabolism: richMetabolism, memory: client });
+  calls.length = 0;
+  const id = await world.createNpc({ name: '酒剑仙', owner: 'user:A', background: '嗜酒剑道高人', room: '酒馆', startGcc: 0.0009 });
+  await sleep(50); // goal-seed remember is fire-and-forget
+
+  // createNpc seeds a kind=goal (so plan has a seed — plan synthesizes from goals, not facts)
+  const goalRem = calls.filter((c) => c.path === '/memory/remember' && (c.body.payload as any)?.kind === 'goal');
+  assert.ok(goalRem.length >= 1, 'createNpc seeds a kind=goal (planning seed)');
+  assert.ok(String((goalRem[0].body.payload as any).description).includes('嗜酒剑道高人'), 'goal derived from background');
+
+  // plan() synthesizes intentions from the goal
+  const res = await world.plan(id, { now: '2026-06-09T08:00', aiggUrl: 'http://x', model: 'm', backend: 'http' });
+  assert.ok(res && res.plans.length >= 1, 'plan() returns synthesized intentions');
+  assert.equal(res!.plans[0].name, '帮助访客');
+  console.log('  ✓ createNpc seeds kind=goal; plan() synthesizes intentions from it (gemma4 path)');
 }
 
 async function test_memory_errors_do_not_break_talk(port: number, _calls: Call[]) {
@@ -144,6 +167,7 @@ async function main() {
     console.log(`fake agentmf serve on :${port}\n`);
     await test_select_injected_before_llm(port, calls);
     await test_remember_fires_after_talk(port, calls);
+    await test_goal_seed_and_plan(port, calls);
     await test_memory_errors_do_not_break_talk(port, calls);
     await test_without_memory_client_unchanged(port, calls);
   } finally {

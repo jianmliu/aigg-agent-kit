@@ -21,7 +21,7 @@ import type {
   Store, Scope, InferenceProvider, NpcPersona, Metabolism,
   SettlementStrategy, SettlementResult
 } from '@onchainpal/npc-agent';
-import type { AiggMemoryClient } from '@onchainpal/npc-agent';
+import type { AiggMemoryClient, PlanResult } from '@onchainpal/npc-agent';
 import { LocalLedgerActivator, ActivationError } from './aigg/activation';
 import type { Activator } from './aigg/activation';
 import { applyTx, relKey, type WorldState } from './stf/world-stf';
@@ -197,7 +197,38 @@ export class SharedWorld {
     await this.store.set(W, npcKey(id), rec, ONCHAIN);
     await this.store.set(W, gccKey(id), input.startGcc ?? 0, ONCHAIN);
     await this.addToRegistry(id);
+    this.seedGoal(rec); // give the NPC a planning seed (kind=goal) so plan() has something to plan toward
     return id;
+  }
+
+  /** Write a kind=goal unit from the NPC's persona — plan() synthesizes intentions
+   *  FROM goals/beliefs, not facts, so without a goal seed there is nothing to plan. */
+  private seedGoal(rec: NpcRecord): void {
+    if (!this.memory || !rec.background) return;
+    this.memory.remember({
+      slug: `${this.safeNpcSeg(rec.id)}_goal`,
+      name: `${rec.name}的目标`,
+      kind: 'goal',
+      description: `履行${rec.name}的身份与职责：${rec.background.trim()}`,
+      match: [rec.name, 'goal', '目标'],
+    }, { corpus: this.memoryCorpus(rec.id), evidence: this.memoryEvidence(rec.id) }).catch(() => { /* never blocks */ });
+  }
+
+  /**
+   * plan — synthesize the NPC's forward intentions (kind=plan) from its goal +
+   * accumulated beliefs/facts, via aigg-memory's planner. Needs a model backend
+   * (aiggUrl/model/backend, e.g. Ollama) since planning is generative. Returns
+   * null if no memory client. The host (MUD) reads the plans and decides; the
+   * kernel never enacts them.
+   */
+  async plan(npcId: string, opts: { now: string; goals?: string[]; aiggUrl?: string; aiggKey?: string; model?: string; backend?: string; timeout?: number }): Promise<PlanResult | null> {
+    if (!this.memory) return null;
+    try {
+      return await this.memory.plan({
+        corpus: this.memoryCorpus(npcId), now: opts.now, write: true, goals: opts.goals,
+        aiggUrl: opts.aiggUrl, aiggKey: opts.aiggKey, model: opts.model, backend: opts.backend, timeout: opts.timeout,
+      });
+    } catch { return null; }
   }
 
   /**
