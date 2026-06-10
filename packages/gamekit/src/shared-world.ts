@@ -302,6 +302,78 @@ export class SharedWorld {
   }
 
   /**
+   * pitch — a deal proposed TO an NPC (the outcome SOURCE that feeds cognition from
+   * real play, not a test harness). The decision is **gated deterministically by
+   * memory** (discernment, no LLM): if the NPC holds a VERIFIED wary belief about
+   * this kind of offer (q≥1, confidence ≥ θ) it DECLINES and keeps its GCC; otherwise
+   * it falls for it and LOSES `amountGcc`. Either way the episode is remembered with
+   * an outcome tag (loss / neutral-avoided) — the input the verification axis needs —
+   * and on the rich tier a Dream (reflect+verify) runs so the belief forms/strengthens.
+   * So: first pitches drain the NPC → it learns → later identical pitches are refused.
+   * `scam` (default true) decides what an *accepted* deal does; an honest deal pays gain.
+   */
+  async pitch(input: { npcId: string; fromId: string; amountGcc: number; claim: string; scam?: boolean }): Promise<{
+    accepted: boolean; protected: boolean; deltaGcc: number; balanceGcc: number; belief?: string; discernment?: DiscernmentResult;
+  }> {
+    const rec = await this.getNpc(input.npcId);
+    if (!rec) throw new Error(`no npc ${input.npcId}`);
+    const scam = input.scam ?? true;
+    const bal0 = await this.balanceGcc(input.npcId);
+    const now = Date.now();
+    const corpus = this.memoryCorpus(input.npcId);
+    const evidence = this.memoryEvidence(input.npcId);
+    const topic = input.fromId; // the counterpart — discernment scans episodes citing them
+
+    // decide BY memory: a verified wary belief about this counterpart/offer → refuse
+    let gate: DiscernmentResult | undefined;
+    if (this.memory) {
+      for (const t of [topic, 'pitch', 'deal']) {
+        try {
+          const d = await this.memory.discernment(t, { corpus, mode: 'provenance', minConfidence: this.discernmentTheta });
+          if (d && d.q > 0) { gate = d; break; }
+        } catch { break; }
+      }
+    }
+
+    if (gate) {
+      // PROTECTED: declines, keeps GCC. Remember the avoidance (a 'gain' relative to the loss it dodged).
+      this.memory?.remember({
+        slug: `${input.fromId}_avoided_${now}`.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_'),
+        name: `拒绝 ${input.fromId} 的提议`, kind: 'episodic',
+        description: `${rec.name} 凭已验证的警惕信念拒绝了 ${input.fromId} 的提议「${input.claim}」,守住了 ${input.amountGcc} GCC`,
+        match: [input.fromId, input.npcId, 'pitch', 'deal'], outcome: 'gain',
+      }, { corpus, evidence }).catch(() => {});
+      return { accepted: false, protected: true, deltaGcc: 0, balanceGcc: bal0, discernment: gate };
+    }
+
+    // NAIVE: accepts. An accepted scam drains amountGcc (clamped to balance) = the loss.
+    const moved = scam ? Math.min(input.amountGcc, bal0) : 0;
+    const gain = scam ? 0 : input.amountGcc; // honest deal pays a return
+    const balance = Math.max(0, bal0 - moved) + gain;
+    await this.store.set(W, gccKey(input.npcId), balance, ONCHAIN);
+    // AWAIT (not fire-and-forget): the loss episode must be persisted before dream()'s
+    // reflect reads the corpus, or the just-lived outcome races the synthesis and never
+    // makes it into the belief.
+    await this.memory?.remember({
+      slug: `${input.fromId}_${scam ? 'loss' : 'gain'}_${now}`.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_'),
+      name: `${input.fromId} 的提议`, kind: 'episodic',
+      description: scam
+        ? `${rec.name} 信了 ${input.fromId} 的提议「${input.claim}」,交了 ${moved} GCC,结果被卷走(被坑)`
+        : `${rec.name} 接受了 ${input.fromId} 的提议「${input.claim}」,获利 ${gain} GCC`,
+      match: [input.fromId, input.npcId, 'pitch', 'deal', ...(scam ? ['trap'] : [])],
+      outcome: scam ? 'loss' : 'gain',
+    }, { corpus, evidence }).catch(() => {});
+
+    // Dream so the accumulated losses become a verified belief (rich tier only; needs model)
+    let belief: string | undefined;
+    if (this.memoryModel) {
+      const d = await this.dream(input.npcId, now).catch(() => null);
+      belief = d?.beliefs?.[0];
+    }
+    return { accepted: true, protected: false, deltaGcc: gain - moved, balanceGcc: balance, belief };
+  }
+
+  /**
    * Activate a draft NPC via its first GCC top-up: run the activation seam, and
    * on success persist the record + balance + registry membership and flip it
    * to 'active'. Returns the activation result (txHash/tba when on-chain). A
