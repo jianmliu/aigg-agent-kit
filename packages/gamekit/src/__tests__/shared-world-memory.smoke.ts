@@ -213,6 +213,38 @@ async function test_dream_reflect_verify_on_rich_tier(port: number, calls: Call[
   console.log('  ✓ explicit dream() → { beliefs, verified }');
 }
 
+async function test_pitch_outcome_loop(port: number, calls: Call[]) {
+  // gate switchable: when '/memory/discernment' returns q=1 the NPC is "已学会" → declines
+  const client = new AiggMemoryClient({ baseUrl: `http://127.0.0.1:${port}` });
+  const mm = { aiggUrl: 'http://localhost:11434/v1', model: 'gemma4:latest', backend: 'http' };
+  const world = new SharedWorld({ store: new InMemoryStore(), provider: new ScriptedProvider(), metabolism: richMetabolism, memory: client, memoryModel: mm });
+  const id = await world.createNpc({ name: '鸿蒙', owner: 'user:A', background: 'bg', room: '集市', startGcc: 0.0009 });
+
+  // NAIVE pitch (the fake discernment returns q=0 unless topic includes '赌局') → accepts + loses
+  calls.length = 0;
+  const naive = await world.pitch({ npcId: id, fromId: 'player:骗子', amountGcc: 0.0005, claim: '稳赚十倍' });
+  assert.equal(naive.accepted, true, 'no verified belief → naive NPC accepts');
+  assert.equal(naive.protected, false);
+  assert.ok(naive.deltaGcc < 0, 'accepted scam drains GCC (the loss)');
+  const loss = calls.find((c) => c.path === '/memory/remember' && (c.body.payload as any)?.outcome === 'loss');
+  assert.ok(loss && String((loss.body.payload as any).match).includes('trap'), "loss episode tagged outcome+trap (feeds verify)");
+  assert.ok(calls.some((c) => c.path === '/memory/reflect') && calls.some((c) => c.path === '/memory/verify'), 'pitch fires Dream (reflect+verify) so the belief forms');
+  console.log('  ✓ naive pitch → NPC accepts, loses GCC, loss-tagged episode + Dream (learns)');
+
+  // LEARNED pitch (topic '赌局' makes the fake gate return q=1) → declines, keeps GCC
+  calls.length = 0;
+  const bal0 = await world.balanceGcc(id);
+  const wary = await world.pitch({ npcId: id, fromId: 'player:赌局', amountGcc: 0.0005, claim: '论剑赌局,押注必赢' });
+  await sleep(50); // the avoidance remember is fire-and-forget
+  assert.equal(wary.accepted, false, 'verified wary belief (q=1) → NPC declines');
+  assert.equal(wary.protected, true);
+  assert.ok(wary.discernment && wary.discernment.q === 1, 'discernment gate surfaced');
+  assert.equal(await world.balanceGcc(id), bal0, 'GCC preserved — the NPC protected itself');
+  const avoided = calls.find((c) => c.path === '/memory/remember' && (c.body.payload as any)?.outcome === 'gain');
+  assert.ok(avoided, 'avoidance remembered as a gain');
+  console.log('  ✓ learned pitch → discernment gate → NPC DECLINES, GCC preserved (behaviour changed)');
+}
+
 async function test_memory_errors_do_not_break_talk(port: number, _calls: Call[]) {
   // point at a dead port so all memory calls fail
   const client = new AiggMemoryClient({ baseUrl: 'http://127.0.0.1:1' }); // unreachable
@@ -253,6 +285,7 @@ async function main() {
     await test_outcome_tag_passes_through(port, calls);
     await test_discernment_gates_the_turn(port, calls);
     await test_dream_reflect_verify_on_rich_tier(port, calls);
+    await test_pitch_outcome_loop(port, calls);
     await test_memory_errors_do_not_break_talk(port, calls);
     await test_without_memory_client_unchanged(port, calls);
   } finally {
