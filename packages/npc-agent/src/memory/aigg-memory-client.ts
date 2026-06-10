@@ -73,6 +73,9 @@ export interface UnitsResult {
 export interface PlanUnit { slug: string; name: string; description?: string; body?: string; valid_from?: string; derived_from?: string[] }
 export interface PlanResult { plans: PlanUnit[]; written?: boolean }
 
+/** discernment — a decision read out of memory: relevant belief AND confidence ≥ θ. */
+export interface DiscernmentResult { q: number; faculty: number; social: number; confidence: number }
+
 export interface AiggMemoryClientOptions {
   /** base URL of the agentmf serve process, e.g. "http://localhost:8787" */
   baseUrl: string;
@@ -150,7 +153,7 @@ export class AiggMemoryClient {
    * does NOT extract — it only promotes already-structured observations, so this is
    * the right write path for the MUD's known facts.
    */
-  async remember(payload: { name?: string; slug?: string; kind?: string; description: string; match?: string[]; body?: string; asserted_by?: string; valid_from?: string }, opts?: { corpus?: string; evidence?: string }): Promise<{ ok?: boolean; units?: MemoryUnit[] }> {
+  async remember(payload: { name?: string; slug?: string; kind?: string; description: string; match?: string[]; body?: string; asserted_by?: string; valid_from?: string; outcome?: 'loss' | 'gain' | 'neutral'; predicts?: string[]; derived_from?: string[]; source_events?: unknown[] }, opts?: { corpus?: string; evidence?: string }): Promise<{ ok?: boolean; units?: MemoryUnit[] }> {
     return this.post('/memory/remember', {
       corpus: opts?.corpus ?? this.defaultCorpus,
       evidence: opts?.evidence ?? this.defaultEvidence,
@@ -174,6 +177,58 @@ export class AiggMemoryClient {
       ...(opts?.aiggKey ? { aigg_key: opts.aiggKey } : {}),
       ...(opts?.model ? { model: opts.model } : {}),
       ...(opts?.backend ? { backend: opts.backend } : {}),
+    });
+  }
+
+  /**
+   * reflect — Dream's belief-former: cluster the corpus's episodes and synthesize
+   * BELIEFS (kind=belief) over a model backend (tolerant of small local models,
+   * e.g. Ollama gemma4). The cognition step `consolidate` is not: consolidate
+   * promotes structured observations; reflect forms new conclusions from them.
+   */
+  async reflect(opts: { corpus?: string; write?: boolean; aiggUrl: string; aiggKey?: string; model?: string; backend?: string; timeout?: number; threshold?: number }): Promise<{ written?: string[]; proposals?: unknown[] }> {
+    return this.post('/memory/reflect', {
+      corpus: opts.corpus ?? this.defaultCorpus,
+      write: opts.write ?? true,
+      aigg_url: opts.aiggUrl,
+      timeout: opts.timeout ?? 180, // local models cold-load + generate slowly; 30s default times out
+      ...(opts.aiggKey ? { aigg_key: opts.aiggKey } : {}),
+      ...(opts.model ? { model: opts.model } : {}),
+      ...(opts.backend ? { backend: opts.backend } : {}),
+      ...(opts.threshold != null ? { threshold: opts.threshold } : {}),
+    });
+  }
+
+  /**
+   * verify — the trust axis: a DETERMINISTIC, no-LLM sweep that scores beliefs
+   * against outcome-tagged episodes (and skills against invocation outcomes);
+   * refuted beliefs go `stale`. Confidence feeds discernment()'s θ-gate. The host
+   * must have tagged outcomes (remember(payload.outcome)) for this to bite.
+   */
+  async verify(opts?: { corpus?: string; write?: boolean; now?: string; refuteThreshold?: number }): Promise<{ verified?: Record<string, { hits?: number; misses?: number; confidence?: number; stale?: boolean; predicts?: string[] }> }> {
+    return this.post('/memory/verify', {
+      corpus: opts?.corpus ?? this.defaultCorpus,
+      write: opts?.write ?? true,
+      ...(opts?.now ? { now: opts.now } : {}),
+      ...(opts?.refuteThreshold != null ? { refute_threshold: opts.refuteThreshold } : {}),
+    });
+  }
+
+  /**
+   * discernment — decide BY memory (deterministic, no LLM): is there a belief
+   * RELEVANT to `topic` (mode:'provenance' reads its evidence, not its wording)
+   * whose verified confidence ≥ minConfidence? `q` is the discernment the host
+   * reads at decision time; faculty=1 self-learned, social=1 peer-warned.
+   */
+  async discernment(topic: string, opts?: { corpus?: string; marker?: string; mode?: 'text' | 'provenance'; minConfidence?: number; talent?: number; selfId?: string }): Promise<DiscernmentResult> {
+    return this.post('/memory/discernment', {
+      corpus: opts?.corpus ?? this.defaultCorpus,
+      topic,
+      mode: opts?.mode ?? 'provenance',
+      ...(opts?.marker ? { marker: opts.marker } : {}),
+      ...(opts?.minConfidence != null ? { min_confidence: opts.minConfidence } : {}),
+      ...(opts?.talent != null ? { talent: opts.talent } : {}),
+      ...(opts?.selfId ? { self_id: opts.selfId } : {}),
     });
   }
 

@@ -36,6 +36,14 @@ function startFakeMemoryServer(): Promise<{ port: number; calls: Call[]; close()
         // canned responses keyed by path
         if (req.url === '/memory/remember') {
           res.end(JSON.stringify({ ok: true, diagnostics: [], data: { ok: true, units: [{ name: String((body.payload as any)?.name ?? '') }] } }));
+        } else if (req.url === '/memory/discernment') {
+          // canned: a verified wary belief is relevant when the topic mentions 论剑赌局
+          const hit = String(body.topic ?? '').includes('赌局');
+          res.end(JSON.stringify({ ok: true, diagnostics: [], data: hit ? { q: 1.0, faculty: 1, social: 0, confidence: 0.667 } : { q: 0, faculty: 0, social: 0, confidence: 0 } }));
+        } else if (req.url === '/memory/reflect') {
+          res.end(JSON.stringify({ ok: true, diagnostics: [], data: { written: ['gambling_offers_are_traps'], proposals: [] } }));
+        } else if (req.url === '/memory/verify') {
+          res.end(JSON.stringify({ ok: true, diagnostics: [], data: { verified: { gambling_offers_are_traps: { hits: 2, misses: 1, confidence: 0.667, stale: false } } } }));
         } else if (req.url === '/memory/plan') {
           res.end(JSON.stringify({ ok: true, diagnostics: [], data: { plans: [{ slug: 'p1', name: '帮助访客', description: '下次备好酒迎客' }], written: ['memory/p1/SKILL.md'] } }));
         } else if (req.url === '/memory/select') {
@@ -131,6 +139,80 @@ async function test_goal_seed_and_plan(port: number, calls: Call[]) {
   console.log('  ✓ createNpc seeds kind=goal; plan() synthesizes intentions from it (gemma4 path)');
 }
 
+async function test_outcome_tag_passes_through(port: number, calls: Call[]) {
+  const client = new AiggMemoryClient({ baseUrl: `http://127.0.0.1:${port}` });
+  const world = new SharedWorld({ store: new InMemoryStore(), provider: new ScriptedProvider(), metabolism: richMetabolism, memory: client });
+  const id = await world.createNpc({ name: '酒剑仙', owner: 'user:A', background: 'bg', room: '酒馆', startGcc: 0.0009 });
+  await sleep(50);
+  calls.length = 0;
+  await world.talk({ npcId: id, visitorId: '游侠', text: '上次那笔买卖把我坑了', outcome: 'loss' });
+  await sleep(50);
+  const rem = calls.find((c) => c.path === '/memory/remember' && (c.body.payload as any)?.kind === 'episodic');
+  assert.ok(rem, 'episodic remember fired');
+  assert.equal((rem!.body.payload as any).outcome, 'loss', 'host outcome tag reaches the payload (the verification input)');
+  console.log('  ✓ talk(outcome:"loss") → remember payload carries the outcome tag (feeds verify)');
+}
+
+async function test_discernment_gates_the_turn(port: number, calls: Call[]) {
+  // a provider that records what the LLM was actually told
+  let seen = { system: '', prompt: '' };
+  const recording = {
+    id: 'rec',
+    async complete(req: InferenceRequest): Promise<InferenceResult> {
+      seen = { system: req.system ?? '', prompt: req.prompt };
+      return { text: JSON.stringify({ say: '此局有诈,恕不奉陪。', effects: [] }), usage: { model: 'rec', inputTokens: 10, outputTokens: 10, gccCost: 0.0003 } };
+    },
+  } satisfies InferenceProvider;
+  const client = new AiggMemoryClient({ baseUrl: `http://127.0.0.1:${port}` });
+  const world = new SharedWorld({ store: new InMemoryStore(), provider: recording, metabolism: richMetabolism, memory: client });
+  const id = await world.createNpc({ name: '酒剑仙', owner: 'user:A', background: 'bg', room: '酒馆', startGcc: 0.0009 });
+
+  calls.length = 0;
+  const r = await world.talk({ npcId: id, visitorId: '游侠', text: '来场论剑赌局,稳赚不赔' });
+  const dCall = calls.find((c) => c.path === '/memory/discernment');
+  assert.ok(dCall, 'discernment called in the turn loop');
+  assert.equal(dCall!.body.mode, 'provenance', 'provenance mode (reads evidence, not wording)');
+  assert.equal(dCall!.body.min_confidence, 0.5, 'θ-gated');
+  assert.ok(r.discernment && r.discernment.q === 1 && r.discernment.confidence === 0.667, 'TalkResult surfaces the gate');
+  assert.ok((seen.system + seen.prompt).includes('【裁断】'), 'the verified-belief warning was injected into the prompt — memory shaped the decision');
+  console.log('  ✓ discernment() gates the turn: θ-gated provenance call → warning in-prompt → surfaced in TalkResult');
+
+  // non-matching topic → no gate, no field
+  const r2 = await world.talk({ npcId: id, visitorId: '游侠', text: '今天天气不错' });
+  assert.equal(r2.discernment, undefined, 'no relevant verified belief → no gate');
+  console.log('  ✓ no relevant belief → talk() unchanged (no discernment field)');
+}
+
+async function test_dream_reflect_verify_on_rich_tier(port: number, calls: Call[]) {
+  const client = new AiggMemoryClient({ baseUrl: `http://127.0.0.1:${port}` });
+  const mm = { aiggUrl: 'http://localhost:11434/v1', model: 'gemma4:latest', backend: 'http' };
+  // rich balance → Dream fires after talk
+  const world = new SharedWorld({ store: new InMemoryStore(), provider: new ScriptedProvider(), metabolism: richMetabolism, memory: client, memoryModel: mm });
+  const id = await world.createNpc({ name: '酒剑仙', owner: 'user:A', background: 'bg', room: '酒馆', startGcc: 0.0009 });
+  calls.length = 0;
+  await world.talk({ npcId: id, visitorId: '游侠', text: '论剑' });
+  await sleep(80); // fire-and-forget reflect→verify
+  assert.ok(calls.some((c) => c.path === '/memory/reflect'), 'Dream: reflect fired on the rich tier');
+  const vc = calls.find((c) => c.path === '/memory/verify');
+  assert.ok(vc, 'Dream: verify fired after reflect');
+  assert.equal(vc!.body.write, true, 'verify writes confidence/stale');
+  console.log('  ✓ rich tier → Dream fires reflect(model) then verify (episodes→beliefs→confidence)');
+
+  // lean balance → no Dream
+  const lean = new SharedWorld({ store: new InMemoryStore(), provider: new ScriptedProvider(), metabolism: richMetabolism, memory: client, memoryModel: mm });
+  const id2 = await lean.createNpc({ name: '乞丐', owner: 'user:A', background: 'bg', room: '酒馆', startGcc: 0.0002 });
+  calls.length = 0;
+  await lean.talk({ npcId: id2, visitorId: '游侠', text: '论剑' });
+  await sleep(80);
+  assert.ok(!calls.some((c) => c.path === '/memory/reflect'), 'lean tier → no Dream (saves model cost)');
+  console.log('  ✓ lean tier → Dream NOT fired');
+
+  // explicit dream() returns the synthesis
+  const d = await world.dream(id, 1718000000000);
+  assert.deepEqual(d, { beliefs: ['gambling_offers_are_traps'], verified: 1 }, 'explicit dream() returns beliefs + verified count');
+  console.log('  ✓ explicit dream() → { beliefs, verified }');
+}
+
 async function test_memory_errors_do_not_break_talk(port: number, _calls: Call[]) {
   // point at a dead port so all memory calls fail
   const client = new AiggMemoryClient({ baseUrl: 'http://127.0.0.1:1' }); // unreachable
@@ -168,6 +250,9 @@ async function main() {
     await test_select_injected_before_llm(port, calls);
     await test_remember_fires_after_talk(port, calls);
     await test_goal_seed_and_plan(port, calls);
+    await test_outcome_tag_passes_through(port, calls);
+    await test_discernment_gates_the_turn(port, calls);
+    await test_dream_reflect_verify_on_rich_tier(port, calls);
     await test_memory_errors_do_not_break_talk(port, calls);
     await test_without_memory_client_unchanged(port, calls);
   } finally {

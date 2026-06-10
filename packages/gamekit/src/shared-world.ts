@@ -21,7 +21,7 @@ import type {
   Store, Scope, InferenceProvider, NpcPersona, Metabolism,
   SettlementStrategy, SettlementResult
 } from '@onchainpal/npc-agent';
-import type { AiggMemoryClient, PlanResult } from '@onchainpal/npc-agent';
+import type { AiggMemoryClient, PlanResult, DiscernmentResult } from '@onchainpal/npc-agent';
 import { LocalLedgerActivator, ActivationError } from './aigg/activation';
 import type { Activator } from './aigg/activation';
 import { applyTx, relKey, type WorldState } from './stf/world-stf';
@@ -67,6 +67,12 @@ export interface TalkResult {
   settlement?: { mode: string; receiptId?: string; ok: boolean };
   /** AI provenance — the oracle's signed attestation (model+prompt+response), when present. */
   attestation?: Attestation;
+  /**
+   * The per-turn discernment gate (decide BY memory, deterministic): present when a
+   * verified belief relevant to this turn cleared θ — the NPC was warned in-prompt
+   * and the host can read q/confidence (faculty=self-learned, social=peer-warned).
+   */
+  discernment?: DiscernmentResult;
 }
 
 
@@ -97,6 +103,14 @@ export interface SharedWorldOptions {
    * Without a memory client the behaviour is identical to before (no-op).
    */
   memory?: AiggMemoryClient;
+  /**
+   * Model backend for the COGNITION ops (Dream's reflect; plan) — e.g. Ollama
+   * gemma4. Without it, dream() is a no-op (remember/select/verify/discernment
+   * are deterministic and need no model).
+   */
+  memoryModel?: { aiggUrl: string; aiggKey?: string; model?: string; backend?: string; timeout?: number };
+  /** θ for the per-turn discernment gate (relevant belief AND confidence ≥ θ). Default 0.5. */
+  discernmentTheta?: number;
   /**
    * Activation seam — invoked on a draft NPC's first GCC top-up to decide
    * whether it becomes a permanent, persisted entity. Defaults to
@@ -156,6 +170,8 @@ export class SharedWorld {
   private readonly provider: InferenceProvider;
   private readonly metabolism: Metabolism;
   private readonly memory?: AiggMemoryClient;
+  private readonly memoryModel?: { aiggUrl: string; aiggKey?: string; model?: string; backend?: string; timeout?: number };
+  private readonly discernmentTheta: number;
   private readonly activator: Activator;
   private readonly minActivationGcc: number;
   private readonly settlement?: SettlementStrategy;
@@ -176,6 +192,8 @@ export class SharedWorld {
     this.provider = opts.provider;
     this.metabolism = opts.metabolism ?? DEFAULT_METABOLISM;
     this.memory = opts.memory;
+    this.memoryModel = opts.memoryModel;
+    this.discernmentTheta = opts.discernmentTheta ?? 0.5;
     this.activator = opts.activator ?? new LocalLedgerActivator();
     this.minActivationGcc = opts.minActivationGcc ?? 0.001;
     this.settlement = opts.settlement;
@@ -240,6 +258,28 @@ export class SharedWorld {
         corpus: this.memoryCorpus(npcId), now: opts.now, write: true, goals: opts.goals,
         aiggUrl: opts.aiggUrl, aiggKey: opts.aiggKey, model: opts.model, backend: opts.backend, timeout: opts.timeout,
       });
+    } catch { return null; }
+  }
+
+  /**
+   * dream — the nightly cognition pass (the Dream seam): reflect over the NPC's
+   * episodes to form BELIEFS (model backend, e.g. gemma4), then verify — the
+   * deterministic, no-LLM sweep that scores beliefs against outcome-tagged
+   * episodes (confidence up; refuted → stale). Auto-fired after talk() on the
+   * rich metabolism tier; callable explicitly by the host. Returns null without
+   * a memory client + model config.
+   */
+  async dream(npcId: string, now: number = 0): Promise<{ beliefs: string[]; verified: number } | null> {
+    if (!this.memory || !this.memoryModel) return null;
+    const corpus = this.memoryCorpus(npcId);
+    try {
+      const r = await this.memory.reflect({
+        corpus, write: true,
+        aiggUrl: this.memoryModel.aiggUrl, aiggKey: this.memoryModel.aiggKey,
+        model: this.memoryModel.model, backend: this.memoryModel.backend, timeout: this.memoryModel.timeout,
+      });
+      const v = await this.memory.verify({ corpus, write: true, ...(now ? { now: new Date(now).toISOString() } : {}) });
+      return { beliefs: (r.written ?? []) as string[], verified: Object.keys(v.verified ?? {}).length };
     } catch { return null; }
   }
 
@@ -371,7 +411,7 @@ export class SharedWorld {
   }
 
   /** A visitor talks to a stationed NPC. The NPC thinks on its funded GCC. */
-  async talk(input: { npcId: string; visitorId: string; text: string }): Promise<TalkResult> {
+  async talk(input: { npcId: string; visitorId: string; text: string; outcome?: 'loss' | 'gain' | 'neutral' }): Promise<TalkResult> {
     const rec = await this.getNpc(input.npcId);
     if (!rec) throw new Error(`no npc ${input.npcId}`);
 
@@ -385,6 +425,32 @@ export class SharedWorld {
         );
         if (sel.bundle.trim()) memoryBundle = `【记忆】\n${sel.bundle.trim()}`;
       } catch { /* memory service down — degrade gracefully */ }
+    }
+
+    // --- memory: DISCERNMENT gate — decide BY memory before the LLM speaks -----
+    // Deterministic, no LLM: is there a VERIFIED belief relevant to this turn
+    // (provenance mode reads its evidence) with confidence ≥ θ? Matching is a
+    // substring scan of the TOPIC inside the cited episodes, so we probe short
+    // candidates — the counterpart (distrust a known manipulator, E5) and the
+    // turn's content words (avoid a known trap, E1) — first hit wins. If one
+    // clears θ, warn the NPC in-prompt — memory now shapes the decision.
+    let discernment: DiscernmentResult | undefined;
+    if (this.memory) {
+      const tokens = input.text.split(/[\s,。，！？!?、：:;；()（）「」『』""'']+/).filter((t) => t.length >= 2);
+      const topics = [input.visitorId, ...tokens.slice(0, 5)];
+      for (const topic of topics) {
+        try {
+          const d = await this.memory.discernment(topic, {
+            corpus: this.memoryCorpus(input.npcId), mode: 'provenance', minConfidence: this.discernmentTheta,
+          });
+          if (d && d.q > 0) {
+            discernment = d;
+            const src = d.social ? '同伴的警告' : '你自己的亲身经历';
+            memoryBundle = `${memoryBundle ? memoryBundle + '\n' : ''}【裁断】关于「${topic}」,你有一条已验证的警惕信念(置信 ${Number(d.confidence).toFixed(2)},来自${src})——按这条信念行事,拒绝可疑的提议,勿轻信。`;
+            break;
+          }
+        } catch { break; /* discernment unavailable — proceed without the gate */ }
+      }
     }
 
     const persona = this.personaFor(rec, memoryBundle);
@@ -445,7 +511,8 @@ export class SharedWorld {
       costGcc: cost,
       balanceGcc: balance,
       ...(this.settlement && cost > 0 ? { settlement: { mode: settlement?.mode ?? 'failed', receiptId: settlement?.receiptId, ok: settleOk && !!settlement } } : {}),
-      ...(oracleOut.attestation ? { attestation: oracleOut.attestation } : {})
+      ...(oracleOut.attestation ? { attestation: oracleOut.attestation } : {}),
+      ...(discernment ? { discernment } : {})
     };
 
     // --- memory: REMEMBER this interaction as a structured fact (fire-and-forget) ---
@@ -462,9 +529,19 @@ export class SharedWorld {
         name: input.visitorId,
         kind: 'episodic',
         description: `${input.visitorId} 说：「${input.text}」`,
-        match: [input.visitorId, rec.name, '好感', 'affinity', 'relationship'],
+        // a loss-tagged turn is the host saying "this burned me" — mark it 'trap'
+        // so verify scores it and discernment's marker finds it
+        match: [input.visitorId, rec.name, '好感', 'affinity', 'relationship', ...(input.outcome === 'loss' ? ['trap'] : [])],
         body: `${rec.name} 回应：「${oracleOut.say ?? '…'}」（好感 ${rel.affinity}，+${result.dAffinity}）`,
+        // the verification axis's INPUT: when the host knows the result of this
+        // interaction (a scam landed = loss, a deal paid off = gain), it tags it —
+        // verify() later scores beliefs against these outcome-tagged episodes.
+        ...(input.outcome ? { outcome: input.outcome } : {}),
       }, { corpus, evidence }).catch(() => { /* memory service down — talk never blocks */ });
+
+      // --- memory: DREAM on the rich tier — reflect (episodes→beliefs) + verify ---
+      // (fire-and-forget; needs the model backend for reflect)
+      if (richTier && this.memoryModel) this.dream(input.npcId, now).catch(() => {});
     }
 
     return result;
