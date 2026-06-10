@@ -139,6 +139,16 @@ export interface SharedWorldOptions {
    * gap). Unset → the local store meter (+ optional `balances` reader), as before.
    */
   settlementLayer?: SettlementLayer;
+  /**
+   * Persona seam — lets the host supply a full NpcPersona (tones, taboos, caps,
+   * addressing tiers) for NPCs it knows, instead of the generic background-based
+   * default. Called per talk() with the NPC record and the selected memory
+   * bundle (when a typed-memory client is configured) — weaving the bundle into
+   * the persona is the resolver's responsibility. Return undefined to fall back
+   * to the default persona for that NPC (e.g. player-created NPCs the host has
+   * no card for).
+   */
+  personaResolver?: (rec: NpcRecord, memoryBundle?: string) => NpcPersona | undefined;
 }
 
 export class SharedWorld {
@@ -152,6 +162,7 @@ export class SharedWorld {
   private readonly balances?: OnchainBalanceProvider;
   private readonly oracle: InferenceOracle;
   private readonly settlementLayer?: SettlementLayer;
+  private readonly personaResolver?: (rec: NpcRecord, memoryBundle?: string) => NpcPersona | undefined;
   /**
    * Draft NPCs — created but never funded. RAM-only by design: no store write,
    * so they vanish on restart and never appear in the persisted registry. Keyed
@@ -172,6 +183,7 @@ export class SharedWorld {
     // default oracle wraps the same LlmAgent reasoning; SharedWorld gates metabolism itself.
     this.oracle = opts.oracle ?? new LlmInferenceOracle({ provider: this.provider });
     this.settlementLayer = opts.settlementLayer;
+    this.personaResolver = opts.personaResolver;
     this.rooms = opts.rooms ?? ['广场', '酒馆', '集市'];
   }
 
@@ -342,6 +354,8 @@ export class SharedWorld {
   private memoryEvidence(npcId: string): string { return `npcs/${this.safeNpcSeg(npcId)}/evidence.jsonl`; }
 
   private personaFor(rec: NpcRecord, memoryBundle?: string): NpcPersona {
+    const custom = this.personaResolver?.(rec, memoryBundle);
+    if (custom) return custom;
     const role = [rec.background || rec.name, memoryBundle].filter(Boolean).join('\n\n');
     return {
       id: rec.id, name: rec.name,
