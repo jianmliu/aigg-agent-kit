@@ -15,8 +15,9 @@
     "test:platform": "tsx src/__tests__/aigg-platform-npcs.smoke.ts",
     "test:settlement": "tsx src/__tests__/settlement-wiring.smoke.ts",
     "test:stf": "tsx src/__tests__/world-stf.smoke.ts",
-    "test:verifiable": "tsx src/__tests__/verifiable-execution.smoke.ts"
+    "test:verifiable": "tsx src/__tests__/verifiable-execution.smoke.ts",
+    "test:persona": "tsx src/__tests__/persona-resolver.smoke.ts"
   },
-  "dependencies": { "@onchainpal/npc-agent": "workspace:*" },
+  "dependencies": { "@onchainpal/npc-agent": "workspace:*", "viem": "^2.51.3" },
   "devDependencies": { "@types/node": "^22.8.4", "tsx": "^4.21.0" }
 }
