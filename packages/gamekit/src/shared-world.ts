@@ -24,7 +24,7 @@ import type {
 import type { AiggMemoryClient, PlanResult, DiscernmentResult } from '@onchainpal/npc-agent';
 import { LocalLedgerActivator, ActivationError } from './aigg/activation';
 import type { Activator } from './aigg/activation';
-import { applyTx, relKey, type WorldState } from './stf/world-stf';
+import { applyTx, relKey, type WorldState, type WorldEvent, type WorldTx } from './stf/world-stf';
 import { LlmInferenceOracle, type InferenceOracle } from './stf/inference-oracle';
 import type { SettlementLayer } from './stf/settlement-layer';
 import type { Effect, Attestation } from '@onchainpal/npc-agent';
@@ -34,6 +34,9 @@ const ONCHAIN = { onchain: true } as const;
 const npcKey = (id: string) => `npc:${id}`;
 const gccKey = (id: string) => `npc:${id}:gcc`;
 const REGISTRY = 'world:npcs';
+/** index of relationship keys ever written (`npcId|playerId`) — lets
+ *  snapshotState() enumerate relationships from a list-less Store. */
+const REL_INDEX = 'world:rels';
 
 export interface NpcRecord {
   id: string;
@@ -154,6 +157,18 @@ export interface SharedWorldOptions {
    */
   settlementLayer?: SettlementLayer;
   /**
+   * Tick/DA seam — receives every WorldEvent the world produces, in order:
+   * the STF events of each applied tx (affinityChanged/flagSet/burned/…) plus
+   * the narrative events SharedWorld synthesizes around them (`say` — the
+   * oracle's line, which the pure STF never sees) and the lifecycle events of
+   * the non-STF write paths (npcCreated/activated/donated/moved). A host
+   * accumulates these per tick and hands them to TickCommitter together with
+   * snapshotState(). Fire-and-forget: a throwing handler never breaks a talk.
+   * NOTE: flagSet effects are NOT persisted by SharedWorld (the flags slice is
+   * per-turn) — the event stream is their only durable record.
+   */
+  onEvents?: (events: WorldEvent[], ctx: { now: number; tx?: WorldTx }) => void;
+  /**
    * Persona seam — lets the host supply a full NpcPersona (tones, taboos, caps,
    * addressing tiers) for NPCs it knows, instead of the generic background-based
    * default. Called per talk() with the NPC record and the selected memory
@@ -179,6 +194,7 @@ export class SharedWorld {
   private readonly oracle: InferenceOracle;
   private readonly settlementLayer?: SettlementLayer;
   private readonly personaResolver?: (rec: NpcRecord, memoryBundle?: string) => NpcPersona | undefined;
+  private readonly onEvents?: (events: WorldEvent[], ctx: { now: number; tx?: WorldTx }) => void;
   /**
    * Draft NPCs — created but never funded. RAM-only by design: no store write,
    * so they vanish on restart and never appear in the persisted registry. Keyed
@@ -202,6 +218,7 @@ export class SharedWorld {
     this.oracle = opts.oracle ?? new LlmInferenceOracle({ provider: this.provider });
     this.settlementLayer = opts.settlementLayer;
     this.personaResolver = opts.personaResolver;
+    this.onEvents = opts.onEvents;
     this.rooms = opts.rooms ?? ['广场', '酒馆', '集市'];
   }
 
@@ -228,6 +245,7 @@ export class SharedWorld {
     await this.store.set(W, gccKey(id), input.startGcc ?? 0, ONCHAIN);
     await this.addToRegistry(id);
     this.seedGoal(rec); // give the NPC a planning seed (kind=goal) so plan() has something to plan toward
+    this.emit([{ kind: 'npcCreated', npcId: id, status: 'active' }], { now: Date.now() });
     return id;
   }
 
@@ -300,6 +318,7 @@ export class SharedWorld {
     await this.store.set(W, gccKey(npcId), amountGcc, ONCHAIN);
     await this.addToRegistry(npcId);
     this.draftNpcs.delete(npcId);
+    this.emit([{ kind: 'activated', npcId, balanceGcc: amountGcc }], { now: Date.now() });
     return res;
   }
 
@@ -315,6 +334,7 @@ export class SharedWorld {
     const rec = await this.store.get<NpcRecord>(W, npcKey(npcId));
     if (!rec) throw new Error(`no npc ${npcId}`);
     await this.store.set(W, npcKey(npcId), { ...rec, room }, ONCHAIN);
+    this.emit([{ kind: 'moved', npcId, room }], { now: Date.now() });
   }
 
   /** Route a top-up: a draft's first qualifying top-up activates it; else add. */
@@ -332,16 +352,57 @@ export class SharedWorld {
     // donate actually reaches the on-chain balance balanceGcc reads.
     if (this.settlementLayer) {
       await this.settlementLayer.deposit(npcId, Math.max(0, gcc));
-      return this.balanceGcc(npcId);
+      const bal = await this.balanceGcc(npcId);
+      this.emit([{ kind: 'donated', npcId, balanceGcc: bal }], { now: Date.now() });
+      return bal;
     }
     const bal = (await this.balanceGcc(npcId)) + Math.max(0, gcc);
     await this.store.set(W, gccKey(npcId), bal, ONCHAIN);
+    this.emit([{ kind: 'donated', npcId, balanceGcc: bal }], { now: Date.now() });
     return bal;
   }
 
   private async addToRegistry(id: string): Promise<void> {
     const reg = (await this.store.get<string[]>(W, REGISTRY)) ?? [];
     if (!reg.includes(id)) { reg.push(id); await this.store.set(W, REGISTRY, reg, ONCHAIN); }
+  }
+
+  private async addToRelIndex(rk: string): Promise<void> {
+    const idx = (await this.store.get<string[]>(W, REL_INDEX)) ?? [];
+    if (!idx.includes(rk)) { idx.push(rk); await this.store.set(W, REL_INDEX, idx, ONCHAIN); }
+  }
+
+  /** fire-and-forget event emission — a throwing handler never breaks gameplay. */
+  private emit(events: WorldEvent[], ctx: { now: number; tx?: WorldTx }): void {
+    if (!events.length || !this.onEvents) return;
+    try { this.onEvents(events, ctx); } catch { /* host handler error — swallowed */ }
+  }
+
+  /**
+   * Reconstruct the full WorldState from the Store — the tick seam's stateRoot
+   * input. Enumerates NPCs via the registry and relationships via the
+   * REL_INDEX this class maintains. `flags` is always empty: SharedWorld does
+   * not persist flag effects (their durable record is the event stream — see
+   * onEvents). Draft NPCs (RAM-only, invisible) are excluded by design.
+   */
+  async snapshotState(): Promise<WorldState> {
+    const registry = (await this.store.get<string[]>(W, REGISTRY)) ?? [];
+    const npcs: WorldState['npcs'] = {};
+    const balances: WorldState['balances'] = {};
+    for (const id of registry) {
+      const rec = await this.store.get<NpcRecord>(W, npcKey(id));
+      if (!rec) continue;
+      npcs[id] = { ...rec, status: 'active' };
+      balances[id] = await this.balanceGcc(id);
+    }
+    const relationships: WorldState['relationships'] = {};
+    const rels = new RelationshipMemory(this.store);
+    for (const rk of (await this.store.get<string[]>(W, REL_INDEX)) ?? []) {
+      const sep = rk.indexOf('|');
+      if (sep <= 0) continue;
+      relationships[rk] = await rels.get(rk.slice(0, sep), rk.slice(sep + 1));
+    }
+    return { npcs, registry, balances, relationships, flags: {} };
   }
 
   // --- discovery -----------------------------------------------------------
@@ -478,14 +539,27 @@ export class SharedWorld {
     const rules = new DefaultGameRules((id) => (id === input.npcId ? persona : undefined));
     const slice: WorldState = { npcs: { [input.npcId]: { ...rec, status: 'active' } }, registry: [], balances: { [input.npcId]: balance0 }, relationships: { [rk]: beforeRel }, flags: {} };
     const now = Date.now();
-    const applied = applyTx(slice, { type: 'applyTalk', npcId: input.npcId, playerId: input.visitorId, effects: oracleOut.effects, gccCost: cost, now }, rules).state;
+    const talkTx: WorldTx = { type: 'applyTalk', npcId: input.npcId, playerId: input.visitorId, effects: oracleOut.effects, gccCost: cost, now };
+    const { state: applied, events: stfEvents } = applyTx(slice, talkTx, rules);
     const rel = applied.relationships[rk];
     const balance = applied.balances[input.npcId];
 
     // persist via the existing tiering-safe write paths: relationship delta + burn.
     const netDelta = rel.affinity - before;
-    if (netDelta !== 0) await relationships.applyDelta(input.npcId, input.visitorId, netDelta, [], now);
+    if (netDelta !== 0) {
+      await relationships.applyDelta(input.npcId, input.visitorId, netDelta, [], now);
+      await this.addToRelIndex(rk);
+    }
     if (cost > 0) await this.store.set(W, gccKey(input.npcId), balance, ONCHAIN);
+
+    // tick seam: the say line (narrative, oracle-produced) + the tx's STF events
+    this.emit(
+      [
+        ...(oracleOut.say ? [{ kind: 'say', npcId: input.npcId, playerId: input.visitorId, text: oracleOut.say } as WorldEvent] : []),
+        ...stfEvents
+      ],
+      { now, tx: talkTx }
+    );
 
     // --- 耗(thinking burn): settle this turn's GCC via the injected strategy ---
     // x402 facilitator nanopayment when configured (per-turn EIP-3009 → /verify

@@ -17,7 +17,8 @@ import type { AutoDriveClient } from '@onchainpal/npc-agent';
 
 /** The per-tick blob archived to DSN (the REPLAY_SCHEMA tick frame / narrative body). */
 export interface TickBlob {
-  schema: 'pumptown/tick@0';
+  /** host blob schema id (default 'pumptown/tick@0'; e.g. 'pal/tick@0'). */
+  schema: string;
   tick: number;
   /** the full event stream for the tick (say/trade/reflect/… — the low-stake body). */
   events: WorldEvent[];
@@ -58,11 +59,12 @@ export class TickCommitter {
   constructor(
     private readonly drive: AutoDriveClient,
     private readonly anchor: TickAnchor,
+    private readonly opts: { schema?: string } = {},
   ) {}
 
   async commit(state: WorldState, events: WorldEvent[], tick: number, meta?: Record<string, unknown>): Promise<TickCommitResult> {
     const root = stateRoot(state);                  // hex sha256 (32 bytes)
-    const blob: TickBlob = { schema: 'pumptown/tick@0', tick, events, stateRoot: root, ...(meta ? { meta } : {}) };
+    const blob: TickBlob = { schema: this.opts.schema ?? 'pumptown/tick@0', tick, events, stateRoot: root, ...(meta ? { meta } : {}) };
     const body = JSON.stringify(blob);
     const cid = await this.drive.upload(body, `tick-${tick}.json`);   // → DSN
     const eventsHash = tickEventsHash(body);
