@@ -92,6 +92,10 @@ export type WorldTx =
 
 /** Events emitted by a tx — the receipt/log (also fraud-proof comparable). */
 export type WorldEvent =
+  /** an NPC line — narrative, produced by the oracle. The STF never sees the
+   *  text; SharedWorld synthesizes this event around applyTalk so the full
+   *  conversation reaches the tick blob (the low-stake DSN-archived body). */
+  | { kind: 'say'; npcId: string; playerId: string; text: string }
   | { kind: 'npcCreated'; npcId: string; status: 'draft' | 'active' }
   | { kind: 'activated'; npcId: string; balanceGcc: number }
   | { kind: 'donated'; npcId: string; balanceGcc: number }
