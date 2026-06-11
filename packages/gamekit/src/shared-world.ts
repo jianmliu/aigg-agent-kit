@@ -400,8 +400,10 @@ export class SharedWorld {
     // AWAIT (not fire-and-forget): the loss episode must be persisted before dream()'s
     // reflect reads the corpus, or the just-lived outcome races the synthesis and never
     // makes it into the belief.
+    const safe = (s: string) => s.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_');
+    const epSlug = safe(`${input.fromId}_${scam ? 'loss' : 'gain'}_${now}`);
     await this.memory?.remember({
-      slug: `${input.fromId}_${scam ? 'loss' : 'gain'}_${now}`.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_'),
+      slug: epSlug,
       name: `${input.fromId} 的提议`, kind: 'episodic',
       description: scam
         ? `${rec.name} 信了 ${input.fromId} 的提议「${input.claim}」,交了 ${moved} GCC,结果被卷走(被坑)`
@@ -409,6 +411,24 @@ export class SharedWorld {
       match: [input.fromId, input.npcId, 'pitch', 'deal', ...(scam ? ['trap'] : [])],
       outcome: scam ? 'loss' : 'gain',
     }, { corpus, evidence }).catch(() => {});
+
+    // FACULTY belief (E1): a self-experienced scam loss IS a wary belief the NPC
+    // learned itself — assert it on the FACULTY axis (asserted_by = self),
+    // derived_from the loss episode so discernment(provenance) matches it via the
+    // evidence and refuses this counterpart NEXT time. Deterministic, zero-LLM —
+    // the v0.28 gate only reads kind:'belief' units, so the episode alone (which
+    // the Dream may later generalize on the rich tier) never fires the gate.
+    if (scam) {
+      await this.memory?.remember({
+        slug: safe(`learned_${input.fromId}_${now}`),
+        name: `对 ${input.fromId} 的警惕(亲历)`,
+        kind: 'belief',
+        description: `${rec.name} 亲历过 ${input.fromId} 的「${input.claim}」之坑,认得这套把戏`,
+        asserted_by: 'self',             // canonical self-marker (aigg-memory's _agent_id) → faculty axis
+        derived_from: [epSlug],
+        match: [input.fromId, 'trap'],
+      }, { corpus, evidence }).catch(() => {});
+    }
 
     // Dream so the accumulated losses become a verified belief (rich tier only; needs model)
     let belief: string | undefined;
