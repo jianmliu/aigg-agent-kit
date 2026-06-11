@@ -35,12 +35,18 @@ export interface ZeroGBrokerProviderOptions {
   broker: ZeroGBroker;             // created via ZeroGBrokerProvider.fromWallet or injected (tests)
   providerAddress?: string;        // a TeeML provider; if absent, the first TeeML from listService
   fetchImpl?: typeof fetch;
+  /** cap the response length (max_tokens) — chatty TeeML models (e.g. GLM-5-FP8)
+   *  otherwise ramble for 1000+ tokens; a game NPC wants 1–2 terse lines. Also
+   *  bounds the per-call OG cost. Unset = provider default. */
+  maxTokens?: number;
 }
 
 export interface ZeroGBrokerWalletConfig {
   privateKey: string;              // env only — wallet that owns the (pre-funded) ledger
   rpcUrl?: string;                 // 0G chain RPC (default testnet)
   providerAddress?: string;
+  /** cap the response length (max_tokens); see ZeroGBrokerProviderOptions.maxTokens. */
+  maxTokens?: number;
 }
 
 async function sha256Hex(s: string): Promise<string> {
@@ -52,12 +58,14 @@ export class ZeroGBrokerProvider implements InferenceProvider {
   readonly id = '0g-broker';
   private readonly broker: ZeroGBroker;
   private readonly fetchImpl: typeof fetch;
+  private readonly maxTokens?: number;
   private provider?: string;
   private acked = new Set<string>();
 
   constructor(opts: ZeroGBrokerProviderOptions) {
     this.broker = opts.broker;
     this.provider = opts.providerAddress;
+    this.maxTokens = opts.maxTokens;
     const f = opts.fetchImpl ?? (typeof fetch === 'function' ? fetch : undefined);
     if (!f) throw new Error('[ZeroGBrokerProvider] no fetch implementation available');
     this.fetchImpl = f;
@@ -70,7 +78,7 @@ export class ZeroGBrokerProvider implements InferenceProvider {
     const rpc = cfg.rpcUrl ?? 'https://evmrpc-testnet.0g.ai';
     const wallet = new ethers.Wallet(cfg.privateKey, new ethers.JsonRpcProvider(rpc));
     const broker = await createZGComputeNetworkBroker(wallet);
-    return new ZeroGBrokerProvider({ broker, providerAddress: cfg.providerAddress });
+    return new ZeroGBrokerProvider({ broker, providerAddress: cfg.providerAddress, maxTokens: cfg.maxTokens });
   }
 
   /** pick the first TEE (TeeML) provider if none was given. */
@@ -114,7 +122,7 @@ export class ZeroGBrokerProvider implements InferenceProvider {
     const res = await this.fetchImpl(`${endpoint}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...headers },
-      body: JSON.stringify({ model, messages, ...(request.temperature != null ? { temperature: request.temperature } : {}) }),
+      body: JSON.stringify({ model, messages, ...(request.temperature != null ? { temperature: request.temperature } : {}), ...(this.maxTokens ? { max_tokens: this.maxTokens } : {}) }),
       signal: request.signal,
     });
     if (!res.ok) throw new Error(`[ZeroGBrokerProvider] HTTP ${res.status}: ${await res.text().catch(() => '')}`);
