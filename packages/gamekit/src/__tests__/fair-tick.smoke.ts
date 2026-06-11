@@ -46,7 +46,7 @@ async function main() {
   try {
     const state = { calls: [] as Array<{ path: string; body: any }>, wary: new Set<string>() };
     const rich = new Metabolism({ tiers: [{ id: 'r', minBalanceGcc: 0, model: 'm', label: '充盈' }], starvingBelowGcc: -1, defaultTierId: 'r' });
-    const world = new SharedWorld({ store: new InMemoryStore(), provider: new Scripted(), metabolism: rich, memory: fakeMemory(state) });
+    const world = new SharedWorld({ store: new InMemoryStore(), provider: new Scripted(), metabolism: rich, memory: fakeMemory(state), rooms: ['余杭集市', '余杭民居'] });
     const mk = async (name: string) => world.createNpc({ name, owner: 'host:pal', background: '镇民', room: '余杭集市', startGcc: 6 });
     const ding = await mk('丁大伯');
     const zhang = await mk('张四');
@@ -55,7 +55,7 @@ async function main() {
     const SCAMMER = 'npc:youfang-langzhong'; // the pitcher needs no NPC record
 
     const fair = new FairTick(world, [
-      { npcId: SCAMMER, role: 'pitcher', claims: ['此丹与仙灵岛仙丹同源，包治老毛病'], amountGcc: 2 },
+      { npcId: SCAMMER, role: 'pitcher', claims: ['此丹与仙灵岛仙丹同源，包治老毛病'], amountGcc: 2, room: '余杭集市' },
       { npcId: wang, role: 'gossip' },
       { npcId: ding, role: 'townsfolk' },
       { npcId: zhang, role: 'townsfolk' },
@@ -96,6 +96,33 @@ async function main() {
     assert.ok(v1.gate && v1.gate.social === 1 && v1.gate.faculty === 0, 'gate fired on the SOCIAL axis');
     assert.equal(t1.gossips.length, 0, 'no new loss → no new street talk; dedup holds');
     console.log('  ✓ FairTick: loss → street-talk fan-out (once) → next mark refuses on the social axis');
+
+    // 3. SPATIAL: a mark in ANOTHER room is unreachable — no telepathic pitching;
+    //    a gossip elsewhere witnesses nothing; a routed pitcher reaches the room.
+    const faraway = await world.createNpc({ name: '老王', owner: 'host:pal', background: '镇民', room: '余杭民居', startGcc: 6 });
+    const spatial = new FairTick(world, [
+      { npcId: 'npc:walker', role: 'pitcher', claims: ['同源神药'], amountGcc: 1, room: '余杭集市', route: ['余杭集市', '余杭民居'], dwell: 1 },
+      { npcId: faraway, role: 'townsfolk' }
+    ]);
+    const s0 = await spatial.runTick(0, 9000);   // tick0: pitcher at 集市, mark in 民居 → nothing
+    assert.equal(s0.pitches.length, 0, 'cross-room pitch is impossible (no telepathy)');
+    const s1 = await spatial.runTick(1, 9001);   // tick1: route moves the pitcher to 民居... (no record → stays)
+    assert.equal(s1.moves.length, 0, 'a record-less pitcher cannot actually move');
+    assert.equal(s1.pitches.length, 0, 'still out of reach');
+    // give the walker a real record → the route carries him to the mark
+    const walker = await world.createNpc({ id: 'npc:walker2', name: '货郎', owner: 'host:pal', background: '行商', room: '余杭集市', startGcc: 1 });
+    const spatial2 = new FairTick(world, [
+      { npcId: walker, role: 'pitcher', claims: ['同源神药'], amountGcc: 1, route: ['余杭集市', '余杭民居'], dwell: 1 },
+      { npcId: faraway, role: 'townsfolk' }
+    ]);
+    const w0 = await spatial2.runTick(0, 9100);
+    assert.equal(w0.pitches.length, 0, 'tick0: at 集市, mark unreachable');
+    const w1 = await spatial2.runTick(1, 9101);
+    assert.equal(w1.moves.length, 1, 'tick1: the route moves him to 民居');
+    assert.equal(w1.moves[0].to, '余杭民居');
+    assert.equal(w1.pitches.length, 1, 'co-located now → the pitch lands');
+    assert.equal(w1.pitches[0].room, '余杭民居', 'the event carries its place');
+    console.log('  ✓ SPATIAL: no telepathy — the route must carry the pitcher to the mark');
 
     console.log('\nFAIR-TICK SMOKE PASSED ✅');
   } finally {
