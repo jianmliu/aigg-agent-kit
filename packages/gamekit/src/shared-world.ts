@@ -283,6 +283,26 @@ export class SharedWorld {
   }
 
   /**
+   * The NPC's standing intentions — its `kind=plan` memory units (written by
+   * plan(), never auto-acted by the kernel). The PlanExecutor consumes these
+   * as its step queue; stale/archived plans (rationale died) are excluded —
+   * the deterministic re-plan trigger.
+   */
+  async planSteps(npcId: string): Promise<Array<{ slug: string; text: string }>> {
+    if (!this.memory) return [];
+    try {
+      const r = await this.memory.units({ corpus: this.memoryCorpus(npcId) });
+      return (r.units ?? [])
+        .filter((u) => u.kind === 'plan' && u.status !== 'archived' && u.status !== 'stale')
+        .map((u) => ({
+          slug: u.path.split('/').slice(-2, -1)[0] ?? u.name,
+          text: u.description || u.name
+        }))
+        .sort((a, b) => a.slug.localeCompare(b.slug));
+    } catch { return []; }
+  }
+
+  /**
    * dream — the nightly cognition pass (the Dream seam): reflect over the NPC's
    * episodes to form BELIEFS (model backend, e.g. gemma4), then verify — the
    * deterministic, no-LLM sweep that scores beliefs against outcome-tagged
