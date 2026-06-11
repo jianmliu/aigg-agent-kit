@@ -283,6 +283,23 @@ export class SharedWorld {
   }
 
   /**
+   * Seed a standing GOAL (`kind=goal` unit) — what plan() plans FOR. The
+   * planner's candidate selection is goal-seeded (explicit slugs → kind=goal
+   * units → beliefs as fallback); free text in plan({goals}) does NOT work,
+   * goals must exist as units first.
+   */
+  async rememberGoal(npcId: string, slug: string, text: string): Promise<boolean> {
+    if (!this.memory) return false;
+    try {
+      await this.memory.remember({
+        slug: slug.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_'),
+        name: slug, kind: 'goal', description: text, match: [slug]
+      }, { corpus: this.memoryCorpus(npcId), evidence: this.memoryEvidence(npcId) });
+      return true;
+    } catch { return false; }
+  }
+
+  /**
    * The NPC's standing intentions — its `kind=plan` memory units (written by
    * plan(), never auto-acted by the kernel). The PlanExecutor consumes these
    * as its step queue; stale/archived plans (rationale died) are excluded —
