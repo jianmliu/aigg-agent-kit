@@ -24,7 +24,7 @@ import type {
 import type { AiggMemoryClient, PlanResult, DiscernmentResult } from '@onchainpal/npc-agent';
 import { LocalLedgerActivator, ActivationError } from './aigg/activation';
 import type { Activator } from './aigg/activation';
-import { applyTx, relKey, type WorldState, type WorldEvent, type WorldTx } from './stf/world-stf';
+import { applyTx, relKey, type WorldState, type WorldEvent, type WorldTx, type MarketState } from './stf/world-stf';
 import { LlmInferenceOracle, type InferenceOracle } from './stf/inference-oracle';
 import type { SettlementLayer } from './stf/settlement-layer';
 import type { Effect, Attestation } from '@onchainpal/npc-agent';
@@ -33,6 +33,8 @@ const W: Scope = { type: 'world' };
 const ONCHAIN = { onchain: true } as const;
 const npcKey = (id: string) => `npc:${id}`;
 const gccKey = (id: string) => `npc:${id}:gcc`;
+const riceKey = (id: string) => `npc:${id}:rice`;
+const RICE_MARKET = 'world:market:rice';
 const REGISTRY = 'world:npcs';
 /** index of relationship keys ever written (`npcId|playerId`) — lets
  *  snapshotState() enumerate relationships from a list-less Store. */
@@ -414,6 +416,80 @@ export class SharedWorld {
       }, { corpus, evidence });
       return true;
     } catch { return false; }
+  }
+
+  // --- 余杭米市 (rice market) ------------------------------------------------
+  // 米×银=k constant-product over the per-wei-tested STF `trade` path. The
+  // mapping puts 银两 in the STF's `usdc` slot — the SAME GCC meter every
+  // other rail uses (pitch/donate/burn) — and 米 in its `balances` slot
+  // (per-NPC holdings under npc:<id>:rice). 米价 = 银储/米储.
+
+  async initRiceMarket(input: { rice: number; silver: number }): Promise<MarketState> {
+    const m: MarketState = { gccReserve: input.rice, usdcReserve: input.silver, supply: 0 };
+    await this.store.set(W, RICE_MARKET, m, ONCHAIN);
+    const now = Date.now();
+    this.emit(
+      [{ kind: 'marketInit', gccReserve: m.gccReserve, usdcReserve: m.usdcReserve, supply: 0 } as WorldEvent],
+      { now, tx: { type: 'initMarket', gccReserve: m.gccReserve, usdcReserve: m.usdcReserve } as WorldTx }
+    );
+    return m;
+  }
+
+  async riceMarket(): Promise<MarketState | null> {
+    return (await this.store.get<MarketState>(W, RICE_MARKET)) ?? null;
+  }
+
+  /** spot 米价 (银两 per 米) — null until the market is seeded. */
+  async ricePrice(): Promise<number | null> {
+    const m = await this.riceMarket();
+    return m ? m.usdcReserve / m.gccReserve : null;
+  }
+
+  async riceHolding(npcId: string): Promise<number> {
+    return (await this.store.get<number>(W, riceKey(npcId))) ?? 0;
+  }
+
+  /** host-level provisioning (granary endowment) — like startGcc, not a trade. */
+  async grantRice(npcId: string, amount: number): Promise<number> {
+    const next = (await this.riceHolding(npcId)) + amount;
+    await this.store.set(W, riceKey(npcId), next, ONCHAIN);
+    return next;
+  }
+
+  /**
+   * 囤米 (buy: 银→米) / 抛米 (sell: 米→银) via the pure STF — the rejection
+   * paths (no market / bad amount / insufficient 银两 or 米) come back as
+   * ok:false with the STF's reason, and nothing moves.
+   */
+  async tradeRice(input: { npcId: string; side: 'buy' | 'sell'; amount: number }): Promise<{
+    ok: boolean; reason?: string; out: number; price: number | null; balanceGcc: number; rice: number;
+  }> {
+    const rec = await this.getNpc(input.npcId);
+    if (!rec) throw new Error(`no npc ${input.npcId}`);
+    const market = await this.riceMarket();
+    const silver = await this.balanceGcc(input.npcId);
+    const rice = await this.riceHolding(input.npcId);
+    const now = Date.now();
+    const slice: WorldState = {
+      npcs: {}, registry: [], relationships: {}, flags: {},
+      balances: { [input.npcId]: rice },
+      usdc: { [input.npcId]: silver },
+      ...(market ? { market: { ...market } } : {})
+    };
+    const tx: WorldTx = { type: 'trade', agentId: input.npcId, side: input.side, amountIn: input.amount, now };
+    const { state: applied, events } = applyTx(slice, tx, new DefaultGameRules(() => undefined));
+    const rejected = events.find((e) => (e as { kind?: string }).kind === 'rejected') as { reason?: string } | undefined;
+    if (rejected) {
+      return { ok: false, reason: rejected.reason, out: 0, price: market ? market.usdcReserve / market.gccReserve : null, balanceGcc: silver, rice };
+    }
+    const newRice = applied.balances[input.npcId];
+    const newSilver = (applied.usdc ?? {})[input.npcId] ?? silver;
+    await this.store.set(W, riceKey(input.npcId), newRice, ONCHAIN);
+    await this.store.set(W, gccKey(input.npcId), newSilver, ONCHAIN);
+    await this.store.set(W, RICE_MARKET, applied.market!, ONCHAIN);
+    this.emit(events, { now, tx });
+    const traded = events.find((e) => (e as { kind?: string }).kind === 'traded') as { out: number; price: number };
+    return { ok: true, out: traded.out, price: traded.price, balanceGcc: newSilver, rice: newRice };
   }
 
   /**

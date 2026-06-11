@@ -21,12 +21,19 @@ import type { DiscernmentResult } from '@onchainpal/npc-agent';
 
 export interface FairActor {
   npcId: string;
-  role: 'pitcher' | 'gossip' | 'townsfolk';
+  role: 'pitcher' | 'gossip' | 'townsfolk' | 'trader';
   /** pitcher: claims cycled tick by tick */
   claims?: string[];
   /** pitcher: GCC asked per pitch (default 2) */
   amountGcc?: number;
+  /** trader: momentum chases the last move, contrarian fades it (default momentum) */
+  style?: 'momentum' | 'contrarian';
+  /** trader: 银两 (buy) / 米 (sell) committed per trade (default 1) */
+  tradeAmount?: number;
 }
+
+/** an exogenous market move the host scripts (秋收 dumps rice, 风浪 buys it up) */
+export interface FairShock { tick: number; npcId: string; side: 'buy' | 'sell'; amount: number; label?: string }
 
 export interface FairPitchEvent {
   tick: number; from: string; to: string; claim: string;
@@ -34,13 +41,20 @@ export interface FairPitchEvent {
   belief?: string; gate?: DiscernmentResult;
 }
 export interface FairGossipEvent { tick: number; from: string; to: string; about: string }
-export interface FairTickResult { tick: number; pitches: FairPitchEvent[]; gossips: FairGossipEvent[] }
+export interface FairTradeEvent { tick: number; npcId: string; side: 'buy' | 'sell'; amountIn: number; out: number; price: number; shock?: string }
+export interface FairTickResult { tick: number; pitches: FairPitchEvent[]; gossips: FairGossipEvent[]; trades: FairTradeEvent[] }
 
 export class FairTick {
   /** `${gossip}|${about}|${listener}` — a warning relays once */
   private readonly warned = new Set<string>();
+  /** trader npcId → the price it last saw (signal source) */
+  private readonly lastPrice = new Map<string, number>();
 
-  constructor(private readonly world: SharedWorld, private readonly actors: FairActor[]) {}
+  constructor(
+    private readonly world: SharedWorld,
+    private readonly actors: FairActor[],
+    private readonly opts: { shocks?: FairShock[] } = {}
+  ) {}
 
   async runTick(tick: number, now = 0): Promise<FairTickResult> {
     const pitchers = this.actors.filter((a) => a.role === 'pitcher');
@@ -83,6 +97,26 @@ export class FairTick {
         }
       }
     }
-    return { tick, pitches, gossips: gossipEvents };
+    // exogenous shocks first (the price mover traders react to), then traders
+    const trades: FairTradeEvent[] = [];
+    for (const shock of (this.opts.shocks ?? []).filter((x) => x.tick === tick)) {
+      const r = await this.world.tradeRice({ npcId: shock.npcId, side: shock.side, amount: shock.amount });
+      if (r.ok) trades.push({ tick, npcId: shock.npcId, side: shock.side, amountIn: shock.amount, out: r.out, price: r.price!, shock: shock.label ?? 'shock' });
+    }
+    for (const tr of this.actors.filter((a) => a.role === 'trader')) {
+      const price = await this.world.ricePrice();
+      if (price == null) continue;
+      const last = this.lastPrice.get(tr.npcId);
+      this.lastPrice.set(tr.npcId, price);
+      if (last === undefined || price === last) continue;  // first tick observes; flat = no signal
+      const momentum = (tr.style ?? 'momentum') === 'momentum';
+      const side: 'buy' | 'sell' = (price > last) === momentum ? 'buy' : 'sell';
+      const r = await this.world.tradeRice({ npcId: tr.npcId, side, amount: tr.tradeAmount ?? 1 });
+      if (r.ok) {
+        trades.push({ tick, npcId: tr.npcId, side, amountIn: tr.tradeAmount ?? 1, out: r.out, price: r.price! });
+        this.lastPrice.set(tr.npcId, r.price!);
+      }
+    }
+    return { tick, pitches, gossips: gossipEvents, trades };
   }
 }
