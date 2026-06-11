@@ -55,6 +55,7 @@ async function main() {
     const world = new SharedWorld({ store: new InMemoryStore(), provider: new Scripted(), metabolism: rich, rooms: Object.keys(GRAPH) });
     const xianglan = await world.createNpc({ name: '香兰', owner: 'host:pal', background: '丁家长女', room: '集市', startGcc: 2 });
     await world.createNpc({ name: '洪大夫', owner: 'host:pal', background: '药铺大夫', room: '药铺', startGcc: 2 });
+    await world.createNpc({ name: '张四', owner: 'host:pal', background: '渔夫', room: '集市', startGcc: 2 });
 
     // 1. person step: walk hop by hop to HIS room, then talk
     const ex = new PlanExecutor(world, {
@@ -77,8 +78,9 @@ async function main() {
     a = await ex.runTick();           // 镇内 → 集市
     assert.equal((a as any).to, '集市');
     a = await ex.runTick();
-    assert.equal(a.kind, 'arrive', 'place reached, step done');
-    console.log('  ✓ place step: alias match walks there and completes');
+    assert.equal(a.kind, 'talk', 'arrived with intent → asks whoever is here');
+    assert.equal((a as any).targetName, '张四', 'ask-around picks the co-located NPC');
+    console.log('  ✓ place step: walks there and ASKS AROUND (vague plans end in conversation)');
 
     // 3. unresolvable + unreachable both skip; then idle
     a = await ex.runTick();
