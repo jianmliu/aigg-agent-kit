@@ -24,6 +24,11 @@ export interface ZeroGBroker {
     getRequestHeaders(provider: string, content?: string): Promise<Record<string, string>>;
     processResponse(provider: string, chatID: string): Promise<boolean>;
   };
+  /** prepaid ledger — present on the real SDK broker; used to read the OG balance
+   *  that gates metabolism (the on-chain account 0G exposes, unlike ai.gg GCC). */
+  ledger?: {
+    getLedger(): Promise<{ totalBalance?: bigint | string | number; balance?: bigint | string | number; locked?: bigint | string | number }>;
+  };
 }
 
 export interface ZeroGBrokerProviderOptions {
@@ -76,6 +81,24 @@ export class ZeroGBrokerProvider implements InferenceProvider {
     if (!tee) throw new Error('[ZeroGBrokerProvider] no TeeML provider available');
     this.provider = tee.provider;
     return this.provider;
+  }
+
+  /**
+   * Current prepaid ledger balance in OG (neuron/1e18), or null when the broker
+   * doesn't expose a ledger or the read fails. This is 0G's readable on-chain
+   * account — feed it to metabolism so NPCs gate on REAL remaining OG (the
+   * thing ai.gg's GCC couldn't surface via an API key).
+   */
+  async ledgerBalanceOG(): Promise<number | null> {
+    if (!this.broker.ledger) return null;
+    try {
+      const l = await this.broker.ledger.getLedger();
+      const raw = l.totalBalance ?? l.balance;
+      if (raw == null) return null;
+      const atoms = typeof raw === 'bigint' ? raw : BigInt(Math.trunc(Number(raw)));
+      // OG = atoms / 1e18, kept as a float for the metabolism meter
+      return Number(atoms) / 1e18;
+    } catch { return null; }
   }
 
   async complete(request: InferenceRequest): Promise<InferenceResult> {
