@@ -148,7 +148,9 @@ export class FairTick {
     const atMarket = (id: string) => !this.opts.marketRoom || rooms.get(id) === this.opts.marketRoom;
     const trades: FairTradeEvent[] = [];
     for (const shock of (this.opts.shocks ?? []).filter((x) => x.tick === tick)) {
-      if (!atMarket(shock.npcId)) continue;
+      // a shock's mover may not be a fair actor — resolve its room from the world
+      const shockRoom = rooms.get(shock.npcId) ?? (await this.world.getNpc(shock.npcId))?.room ?? '';
+      if (this.opts.marketRoom && shockRoom !== this.opts.marketRoom) continue;
       const r = await this.world.tradeRice({ npcId: shock.npcId, side: shock.side, amount: shock.amount });
       if (r.ok) trades.push({ tick, npcId: shock.npcId, side: shock.side, amountIn: shock.amount, out: r.out, price: r.price!, shock: shock.label ?? 'shock' });
     }
