@@ -374,6 +374,49 @@ export class SharedWorld {
   }
 
   /**
+   * gossip — street-talk, the SOCIAL axis (E2): `fromNpcId` warns `toNpcId`
+   * about a counterpart (`about`, e.g. a scammer's id). Zero-LLM — two
+   * deterministic writes into the LISTENER's corpus:
+   *   1. the hearsay episode (what was heard; match carries `about` + 'trap'
+   *      so the provenance scan finds it),
+   *   2. a relayed BELIEF `asserted_by` the speaker, `derived_from` the
+   *      hearsay — discernment(provenance) matches it via the evidence and
+   *      splits it onto the social axis (asserted_by ≠ self). Unverified, so
+   *      it carries the 0.5 prior: with θ ≤ 0.5 the listener refuses the
+   *      counterpart WITHOUT personal loss; θ > 0.5 demands self-verification.
+   * The speaker needs no NPC record (any id can talk); the listener does.
+   */
+  async gossip(input: { fromNpcId: string; toNpcId: string; about: string; text: string; now?: number }): Promise<boolean> {
+    if (!this.memory) return false;
+    const to = await this.getNpc(input.toNpcId);
+    if (!to) return false;
+    const from = await this.getNpc(input.fromNpcId);
+    const speaker = from?.name ?? input.fromNpcId;
+    const now = input.now ?? Date.now();
+    const corpus = this.memoryCorpus(input.toNpcId);
+    const evidence = this.memoryEvidence(input.toNpcId);
+    const safe = (s: string) => s.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_');
+    const hearsay = safe(`streettalk_${input.about}_${now}`);
+    try {
+      await this.memory.remember({
+        slug: hearsay, name: `${speaker} 的街谈`, kind: 'episodic',
+        description: input.text,
+        match: [input.about, 'pitch', 'deal', 'trap'],
+        asserted_by: input.fromNpcId
+      }, { corpus, evidence });
+      await this.memory.remember({
+        slug: safe(`warned_${input.about}_${now}`),
+        name: `对 ${input.about} 的警惕(听自 ${speaker})`,
+        kind: 'belief', description: input.text,
+        asserted_by: input.fromNpcId,
+        derived_from: [hearsay],
+        match: [input.about, 'trap']
+      }, { corpus, evidence });
+      return true;
+    } catch { return false; }
+  }
+
+  /**
    * Activate a draft NPC via its first GCC top-up: run the activation seam, and
    * on success persist the record + balance + registry membership and flip it
    * to 'active'. Returns the activation result (txHash/tba when on-chain). A
