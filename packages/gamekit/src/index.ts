@@ -12,7 +12,7 @@ export type { SharedWorldOptions, NpcRecord, NpcSummary, TalkResult, OnchainBala
 
 // Deterministic world STF + AI oracle boundary (sequencer / Autonomys-Domain ready).
 export { FairTick } from './fair';
-export type { FairActor, FairPitchEvent, FairGossipEvent, FairTickResult } from './fair';
+export type { FairActor, FairShock, FairPitchEvent, FairGossipEvent, FairTradeEvent, FairTickResult } from './fair';
 export { applyTx, applyAll, stateRoot, emptyWorld, relKey, ammSwap } from './stf/world-stf';
 export type { WorldState, WorldTx, WorldEvent, StfNpc, MarketState, PredictionMarket } from './stf/world-stf';
 export { mulberry32, rollLuck } from './stf/luck';
