@@ -24,7 +24,7 @@ import type {
 import type { AiggMemoryClient, PlanResult, DiscernmentResult } from '@onchainpal/npc-agent';
 import { LocalLedgerActivator, ActivationError } from './aigg/activation';
 import type { Activator } from './aigg/activation';
-import { applyTx, relKey, type WorldState, type WorldEvent, type WorldTx, type MarketState } from './stf/world-stf';
+import { applyTx, relKey, type WorldState, type WorldEvent, type WorldTx, type MarketState, type PredictionMarket } from './stf/world-stf';
 import { LlmInferenceOracle, type InferenceOracle } from './stf/inference-oracle';
 import type { SettlementLayer } from './stf/settlement-layer';
 import type { Effect, Attestation } from '@onchainpal/npc-agent';
@@ -35,6 +35,7 @@ const npcKey = (id: string) => `npc:${id}`;
 const gccKey = (id: string) => `npc:${id}:gcc`;
 const riceKey = (id: string) => `npc:${id}:rice`;
 const RICE_MARKET = 'world:market:rice';
+const RICE_BETS = 'world:market:bets';
 const REGISTRY = 'world:npcs';
 /** index of relationship keys ever written (`npcId|playerId`) — lets
  *  snapshotState() enumerate relationships from a list-less Store. */
@@ -490,6 +491,79 @@ export class SharedWorld {
     this.emit(events, { now, tx });
     const traded = events.find((e) => (e as { kind?: string }).kind === 'traded') as { out: number; price: number };
     return { ok: true, out: traded.out, price: traded.price, balanceGcc: newSilver, rice: newRice };
+  }
+
+  // --- 赌坊 (parimutuel on the rice price) -----------------------------------
+  // 「今秋米价过 X 两?」— a binary market RESOLVED BY THE RICE AMM'S OWN PRICE
+  // (internal, deterministic truth; no external oracle). Stakes escrow 银两
+  // (the same GCC meter); winners split the whole pool pro-rata; no winners →
+  // full refund. All via the per-wei-tested STF openMarket/bet/resolveMarket.
+
+  async riceBets(): Promise<Record<string, PredictionMarket>> {
+    return (await this.store.get<Record<string, PredictionMarket>>(W, RICE_BETS)) ?? {};
+  }
+
+  async openRiceBet(input: { marketId: string; threshold: number }): Promise<{ ok: boolean; reason?: string }> {
+    const markets = await this.riceBets();
+    const now = Date.now();
+    const slice: WorldState = { npcs: {}, registry: [], relationships: {}, flags: {}, balances: {}, markets: { ...markets } };
+    const tx: WorldTx = { type: 'openMarket', marketId: input.marketId, threshold: input.threshold, now };
+    const { state: applied, events } = applyTx(slice, tx, new DefaultGameRules(() => undefined));
+    const rejected = events.find((e) => (e as { kind?: string }).kind === 'rejected') as { reason?: string } | undefined;
+    if (rejected) return { ok: false, reason: rejected.reason };
+    await this.store.set(W, RICE_BETS, applied.markets, ONCHAIN);
+    this.emit(events, { now, tx });
+    return { ok: true };
+  }
+
+  async placeRiceBet(input: { npcId: string; marketId: string; side: 'YES' | 'NO'; amount: number }): Promise<{
+    ok: boolean; reason?: string; balanceGcc: number; yesPool: number; noPool: number;
+  }> {
+    const rec = await this.getNpc(input.npcId);
+    if (!rec) throw new Error(`no npc ${input.npcId}`);
+    const markets = await this.riceBets();
+    const silver = await this.balanceGcc(input.npcId);
+    const now = Date.now();
+    const slice: WorldState = {
+      npcs: {}, registry: [], relationships: {}, flags: {}, balances: {},
+      usdc: { [input.npcId]: silver }, markets: structuredClone(markets)
+    };
+    const tx: WorldTx = { type: 'bet', marketId: input.marketId, agentId: input.npcId, side: input.side, amount: input.amount, now };
+    const { state: applied, events } = applyTx(slice, tx, new DefaultGameRules(() => undefined));
+    const rejected = events.find((e) => (e as { kind?: string }).kind === 'rejected') as { reason?: string } | undefined;
+    const m = (applied.markets ?? {})[input.marketId];
+    if (rejected) return { ok: false, reason: rejected.reason, balanceGcc: silver, yesPool: m?.yesPool ?? 0, noPool: m?.noPool ?? 0 };
+    await this.store.set(W, gccKey(input.npcId), (applied.usdc ?? {})[input.npcId] ?? silver, ONCHAIN);
+    await this.store.set(W, RICE_BETS, applied.markets, ONCHAIN);
+    this.emit(events, { now, tx });
+    return { ok: true, balanceGcc: (applied.usdc ?? {})[input.npcId] ?? silver, yesPool: m.yesPool, noPool: m.noPool };
+  }
+
+  /** 秋收结算 — resolves against the CURRENT rice price and pays every staker. */
+  async resolveRiceBet(marketId: string): Promise<{
+    ok: boolean; reason?: string; outcome?: 'YES' | 'NO'; price?: number; totalPool?: number; payouts?: number;
+  }> {
+    const markets = await this.riceBets();
+    const market = await this.riceMarket();
+    const stakers = Object.keys(markets[marketId]?.stakes ?? {});
+    const usdc: Record<string, number> = {};
+    for (const id of stakers) usdc[id] = await this.balanceGcc(id);
+    const now = Date.now();
+    const slice: WorldState = {
+      npcs: {}, registry: [], relationships: {}, flags: {}, balances: {},
+      usdc, markets: structuredClone(markets), ...(market ? { market: { ...market } } : {})
+    };
+    const tx: WorldTx = { type: 'resolveMarket', marketId, now };
+    const { state: applied, events } = applyTx(slice, tx, new DefaultGameRules(() => undefined));
+    const rejected = events.find((e) => (e as { kind?: string }).kind === 'rejected') as { reason?: string } | undefined;
+    if (rejected) return { ok: false, reason: rejected.reason };
+    for (const id of stakers) {
+      await this.store.set(W, gccKey(id), (applied.usdc ?? {})[id] ?? usdc[id], ONCHAIN);
+    }
+    await this.store.set(W, RICE_BETS, applied.markets, ONCHAIN);
+    this.emit(events, { now, tx });
+    const resolved = events.find((e) => (e as { kind?: string }).kind === 'marketResolved') as { outcome: 'YES' | 'NO'; price: number; totalPool: number; payouts: number };
+    return { ok: true, outcome: resolved.outcome, price: resolved.price, totalPool: resolved.totalPool, payouts: resolved.payouts };
   }
 
   /**
