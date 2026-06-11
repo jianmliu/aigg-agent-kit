@@ -115,6 +115,10 @@ export interface SharedWorldOptions {
    * are deterministic and need no model).
    */
   memoryModel?: { aiggUrl: string; aiggKey?: string; model?: string; backend?: string; timeout?: number };
+  /** corpus namespace — prefixes every NPC's memory path (e.g. 'pal' →
+   *  pal/npcs/<id>/memory) so worlds sharing one agentmf serve stay isolated.
+   *  Default '' (npcs/<id>/memory, unchanged). */
+  memoryNamespace?: string;
   /** θ for the per-turn discernment gate (relevant belief AND confidence ≥ θ). Default 0.5. */
   discernmentTheta?: number;
   /**
@@ -189,6 +193,7 @@ export class SharedWorld {
   private readonly metabolism: Metabolism;
   private readonly memory?: AiggMemoryClient;
   private readonly memoryModel?: { aiggUrl: string; aiggKey?: string; model?: string; backend?: string; timeout?: number };
+  private readonly memoryNs: string = '';
   private readonly discernmentTheta: number;
   private readonly activator: Activator;
   private readonly minActivationGcc: number;
@@ -212,6 +217,7 @@ export class SharedWorld {
     this.metabolism = opts.metabolism ?? DEFAULT_METABOLISM;
     this.memory = opts.memory;
     this.memoryModel = opts.memoryModel;
+    this.memoryNs = opts.memoryNamespace ? `${opts.memoryNamespace.replace(/\/+$/, '')}/` : '';
     this.discernmentTheta = opts.discernmentTheta ?? 0.5;
     this.activator = opts.activator ?? new LocalLedgerActivator();
     this.minActivationGcc = opts.minActivationGcc ?? 0.001;
@@ -753,8 +759,8 @@ export class SharedWorld {
   /** path-safe corpus segment — npcIds contain ':' (e.g. "npc:鸿蒙:owner"), which the
    *  memory server rejects in paths. CJK is fine; only special chars are replaced. */
   private safeNpcSeg(npcId: string): string { return npcId.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_'); }
-  private memoryCorpus(npcId: string): string { return `npcs/${this.safeNpcSeg(npcId)}/memory`; }
-  private memoryEvidence(npcId: string): string { return `npcs/${this.safeNpcSeg(npcId)}/evidence.jsonl`; }
+  private memoryCorpus(npcId: string): string { return `${this.memoryNs}npcs/${this.safeNpcSeg(npcId)}/memory`; }
+  private memoryEvidence(npcId: string): string { return `${this.memoryNs}npcs/${this.safeNpcSeg(npcId)}/evidence.jsonl`; }
 
   private personaFor(rec: NpcRecord, memoryBundle?: string): NpcPersona {
     const custom = this.personaResolver?.(rec, memoryBundle);
