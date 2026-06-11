@@ -118,11 +118,17 @@ export class PlanExecutor {
       return { kind: 'move', step: step.text, from: me.room, to: hop, targetRoom };
     }
 
-    if (person) {
-      const greet = this.opts.greet?.(person.name, step.text) ?? `(向${person.name}打听)${step.text}`;
-      const r = await this.world.talk({ npcId: person.id, visitorId: this.opts.npcId, text: greet });
+    // ask around: arrived with intent but the step named no one — engage
+    // whoever is here (you went to the market to ask, so ask). A vague or
+    // half-translated plan still ends in a conversation, not loitering.
+    const target = person ?? roster.filter((n) => n.room === me.room)
+      .map((n) => ({ id: n.id, name: n.name, room: n.room }))[0] ?? null;
+
+    if (target) {
+      const greet = this.opts.greet?.(target.name, step.text) ?? `(向${target.name}打听)${step.text}`;
+      const r = await this.world.talk({ npcId: target.id, visitorId: this.opts.npcId, text: greet });
       this.current = null;
-      return { kind: 'talk', step: step.text, room: me.room, targetId: person.id, targetName: person.name, said: r.said };
+      return { kind: 'talk', step: step.text, room: me.room, targetId: target.id, targetName: target.name, said: r.said };
     }
 
     this.current = null;
