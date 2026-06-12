@@ -34,6 +34,7 @@ const ONCHAIN = { onchain: true } as const;
 const npcKey = (id: string) => `npc:${id}`;
 const gccKey = (id: string) => `npc:${id}:gcc`;
 const diaryKey = (id: string) => `npc:${id}:diary`;   // off-chain 夜记 log (narrative, not a typed memory unit)
+const logKey = (id: string) => `npc:${id}:log`;       // off-chain 3rd-person system log (debug: say/move/pitch/dream)
 const riceKey = (id: string) => `npc:${id}:rice`;
 const RICE_MARKET = 'world:market:rice';
 const RICE_BETS = 'world:market:bets';
@@ -369,13 +370,20 @@ export class SharedWorld {
       }
       if (rec && topics.length) {
         const learned = topics.map((b) => b.replace(/_/g, ' ')).join('、');
+        // ground the diary in WHO this NPC is — their card persona (background,
+        // voice, register) — so the 夜记 stays in character, not generic prose.
+        const persona = this.personaResolver?.(rec);
+        const who = `你是${rec.name}${persona?.role ? `,${persona.role.split('\n')[0].slice(0, 80)}` : rec.background ? `,${rec.background.slice(0, 80)}` : ''}。`;
+        const voice = [persona?.register && `说话口吻:${persona.register}`, persona?.tones?.length && `语气:${persona.tones.slice(0, 2).join('、')}`].filter(Boolean).join(';');
         const prose = await this.chatModel(
-          `你是${rec.name}。今夜你又把白日的遭遇想了一遍,新悟出这些心得:${learned}。\n` +
-          `用第一人称写一小段夜记(中文,2-3 句,像旧时人记日记的口吻,质朴有情绪),只写日记正文,不要解释。`,
+          `${who}${voice ? voice + '。' : ''}\n` +
+          `今夜你把白日的遭遇又想了一遍,新悟出这些心得:${learned}。\n` +
+          `严格贴合你的身份与口吻,用第一人称写一小段夜记(中文,2-3 句,旧时人记日记的语气,质朴有情绪),只写日记正文,不要跳出角色、不要解释。`,
           400, 'qwen3-vl'   // a fast non-reasoning model for clean prose — GLM-5-FP8 returns content:null on creative prompts
         );
         if (prose) {
           diary = prose.trim();
+          await this.logEvent(npcId, 'dream', `夜里反思,炼出心得「${learned.slice(0, 24)}」,记了一篇夜记`);
           // store the 夜记 in pal's OWN store — it's a narrative artifact, not a
           // typed memory unit (aigg-memory's consolidate gates non-evidence units
           // out, so /memory/remember returns 200 but never persists a journal).
@@ -408,23 +416,36 @@ export class SharedWorld {
     } catch { return null; }
   }
 
+  /** Append a THIRD-PERSON line to the NPC's system log (off-chain, debug):
+   *  every say / move / pitch / gossip / dream the NPC lives, in order. Distinct
+   *  from the first-person 夜记 — this is the objective transcript a dev reads. */
+  private async logEvent(npcId: string, kind: 'say' | 'move' | 'pitch' | 'gossip' | 'dream', text: string): Promise<void> {
+    try {
+      const prev = (await this.store.get<Array<{ ts: number; kind: string; text: string }>>(W, logKey(npcId))) ?? [];
+      prev.push({ ts: Date.now(), kind, text });
+      await this.store.set(W, logKey(npcId), prev.slice(-200));
+    } catch { /* logging never blocks gameplay */ }
+  }
+
   /**
    * npcProfile — the NPC's legible 履历: track record (counts of what it has
-   * lived/learned/written) + its 心得 (active beliefs) + its 夜记 (diary). Read
-   * from the typed-memory corpus; the host renders the 人物档案 page from it.
+   * lived/learned/written) + its 心得 (active beliefs) + its 夜记 (diary) + the
+   * third-person 系统日志 (debug transcript). The host renders the 人物档案 page.
    */
   async npcProfile(npcId: string): Promise<{
     npcId: string; name: string;
     track: { beliefs: number; journals: number; episodes: number; skill: number };
     beliefs: string[];
     diary: Array<{ date?: string; text: string }>;
+    log: Array<{ ts: number; kind: string; text: string }>;
   }> {
     const rec = await this.getNpc(npcId);
     const name = rec?.name ?? npcId;
-    const empty = { npcId, name, track: { beliefs: 0, journals: 0, episodes: 0, skill: 0 }, beliefs: [], diary: [] };
+    const empty = { npcId, name, track: { beliefs: 0, journals: 0, episodes: 0, skill: 0 }, beliefs: [], diary: [], log: [] };
     try {
-      // 夜记 from pal's own store; 心得/阅历 (beliefs/episodes) from typed memory.
+      // 夜记 + 系统日志 from pal's own store; 心得/阅历 (beliefs/episodes) from typed memory.
       const diary = ((await this.store.get<Array<{ date: string; text: string }>>(W, diaryKey(npcId))) ?? []).slice(-12);
+      const log = ((await this.store.get<Array<{ ts: number; kind: string; text: string }>>(W, logKey(npcId))) ?? []).slice(-60);
       let beliefs = 0, episodes = 0;
       const beliefNames: string[] = [];
       if (this.memory) {
@@ -440,6 +461,7 @@ export class SharedWorld {
         track: { beliefs, journals: diary.length, episodes, skill: Math.round((beliefs * 10 + diary.length * 2) * 10) / 10 },
         beliefs: beliefNames.slice(0, 12),
         diary,
+        log,
       };
     } catch { return empty; }
   }
@@ -486,6 +508,7 @@ export class SharedWorld {
         description: `${rec.name} 凭已验证的警惕信念拒绝了 ${input.fromId} 的提议「${input.claim}」,守住了 ${input.amountGcc} GCC`,
         match: [input.fromId, input.npcId, 'pitch', 'deal'], outcome: 'gain',
       }, { corpus, evidence }).catch(() => {});
+      void this.logEvent(input.npcId, 'pitch', `识破了 ${input.fromId.split(':').pop()} 的「${input.claim.slice(0, 16)}」(${gate.faculty ? '亲历过亏' : '听过街谈'}),分文未失`);
       return { accepted: false, protected: true, deltaGcc: 0, balanceGcc: bal0, discernment: gate };
     }
 
@@ -533,6 +556,9 @@ export class SharedWorld {
       const d = await this.dream(input.npcId, now).catch(() => null);
       belief = d?.beliefs?.[0];
     }
+    void this.logEvent(input.npcId, 'pitch', scam
+      ? `中了 ${input.fromId.split(':').pop()} 的「${input.claim.slice(0, 16)}」骗局,亏 ${moved}`
+      : `接了 ${input.fromId.split(':').pop()} 的「${input.claim.slice(0, 16)}」,得利 ${gain}`);
     return { accepted: true, protected: false, deltaGcc: gain - moved, balanceGcc: balance, belief };
   }
 
@@ -575,6 +601,7 @@ export class SharedWorld {
         derived_from: [hearsay],
         match: [input.about, 'trap']
       }, { corpus, evidence });
+      void this.logEvent(input.toNpcId, 'gossip', `听 ${speaker} 提起 ${input.about.split(':').pop()} 的事,记下警惕`);
       return true;
     } catch { return false; }
   }
@@ -755,9 +782,13 @@ export class SharedWorld {
   async place(npcId: string, room: string): Promise<void> {
     if (!this.rooms.includes(room)) throw new Error(`no room ${room}`);
     const draft = this.draftNpcs.get(npcId);
-    if (draft) { this.draftNpcs.set(npcId, { ...draft, room }); return; } // move stays in RAM
+    if (draft) {
+      if (draft.room !== room) void this.logEvent(npcId, 'move', `走到 ${room}`);
+      this.draftNpcs.set(npcId, { ...draft, room }); return; // move stays in RAM
+    }
     const rec = await this.store.get<NpcRecord>(W, npcKey(npcId));
     if (!rec) throw new Error(`no npc ${npcId}`);
+    if (rec.room !== room) void this.logEvent(npcId, 'move', `从 ${rec.room} 走到 ${room}`);
     await this.store.set(W, npcKey(npcId), { ...rec, room }, ONCHAIN);
     this.emit([{ kind: 'moved', npcId, room }], { now: Date.now() });
   }
@@ -952,9 +983,16 @@ export class SharedWorld {
     const tier = decision.starving ? '🥵饥饿' : (decision.tier.label ?? decision.tier.id);
     const richTier = !decision.starving && (decision.tier.label === '充盈' || decision.tier.id === 'r');
 
+    // who's actually speaking — a fellow NPC (钱塘大集) or the player. The oracle
+    // frames/addresses the line by this, so 洪大夫 talking to 香兰 says「香兰」not「小李子」.
+    const visNpc = await this.getNpc(input.visitorId);
+    const interlocutor = visNpc
+      ? { name: visNpc.name, kind: 'npc' as const }
+      : { name: input.visitorId.split(':').pop() || input.visitorId, kind: 'player' as const };
+
     // AI (impure oracle) — quarantined. Starving → scripted line, NO LLM, NO cost.
     const oracleOut = decision.canThink
-      ? await this.oracle.produce({ npcId: input.npcId, playerId: input.visitorId, text: input.text, persona, balanceGcc: balance0, rel: beforeRel })
+      ? await this.oracle.produce({ npcId: input.npcId, playerId: input.visitorId, interlocutor, text: input.text, persona, balanceGcc: balance0, rel: beforeRel })
       : { say: `（${rec.name} 灵力枯竭，无法回应……需要有人为 TA 充值 GCC）`, effects: [] as Effect[], gccCost: 0, usage: undefined, attestation: undefined };
     const cost = oracleOut.gccCost;
 
@@ -985,6 +1023,8 @@ export class SharedWorld {
       ],
       { now, tx: talkTx }
     );
+
+    if (oracleOut.say) void this.logEvent(input.npcId, 'say', `对 ${interlocutor.name} 说:「${oracleOut.say.slice(0, 40)}」`);
 
     // --- 耗(thinking burn): settle this turn's GCC via the injected strategy ---
     // x402 facilitator nanopayment when configured (per-turn EIP-3009 → /verify

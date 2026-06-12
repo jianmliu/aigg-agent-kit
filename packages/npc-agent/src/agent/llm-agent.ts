@@ -79,7 +79,10 @@ export class LlmAgent implements Agent {
     }
 
     const rel = await this.relationships.get(this.npcId, perception.playerId);
-    const addressing = resolveAddressing(this.persona, rel.affinity);
+    // address by who's actually speaking: a fellow NPC by name, the player by
+    // the affinity-tiered title. NPC↔NPC must NOT borrow the player's title.
+    const npcSpeaker = perception.interlocutor?.kind === 'npc';
+    const addressing = npcSpeaker ? perception.interlocutor!.name : resolveAddressing(this.persona, rel.affinity);
     const prompt = this.buildPrompt(perception, addressing, rel.affinity, rel.tags);
 
     const result = await provider.complete({
@@ -110,12 +113,15 @@ export class LlmAgent implements Agent {
     if (p.taboos?.length) lines.push(`禁忌：${p.taboos.join('；')}`);
     if (p.boundaries?.length) lines.push(`底线：${p.boundaries.join('；')}`);
     lines.push('');
-    lines.push(`【你与这名玩家的关系】好感度 ${affinity}${tags.length ? `，标签：${tags.join('、')}` : ''}。你称呼他为「${addressing}」。`);
+    const npcSpeaker = perception.interlocutor?.kind === 'npc';
+    // who you're talking to: a fellow townsperson (NPC) by name, or the player.
+    const who = npcSpeaker ? `同镇的 ${addressing}` : '这名玩家';
+    lines.push(`【你与${who}的关系】好感度 ${affinity}${tags.length ? `，标签：${tags.join('、')}` : ''}。你称呼${npcSpeaker ? '对方' : '他'}为「${addressing}」。`);
     lines.push('');
-    lines.push(`玩家对你说：「${perception.text ?? ''}」`);
+    lines.push(`${addressing}对你说：「${perception.text ?? ''}」`);
     lines.push('');
     lines.push('请只输出一个 JSON 对象，字段：');
-    lines.push('- say: 你的一句中文对白（符合你的身份和与玩家的关系）');
+    lines.push(`- say: 你的一句中文对白（符合你的身份，是对${addressing}说的话，不要把对方错认成别人）`);
     lines.push('- effects: 数组，可选。允许的项：');
     lines.push('  {"kind":"adjustRelationship","delta":整数(-20~20),"reason":"原因"}');
     lines.push('  {"kind":"setFlag","flag":"字符串","value":数字}');
