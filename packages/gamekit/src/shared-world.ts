@@ -211,6 +211,13 @@ export class SharedWorld {
    * by npc id. Promoted to the store (and removed from here) on first funding.
    */
   private readonly draftNpcs = new Map<string, NpcRecord>();
+  /**
+   * goto inbox — movement directives an NPC has been GIVEN this turn (a `goto`
+   * effect from talk, e.g. the player telling 香兰「去客栈」). In-process, RAM
+   * only: the same SharedWorld instance hosts both talk() (writer) and the
+   * per-NPC PlanExecutor (reader, drains it each tick). Keyed by npc id.
+   */
+  private readonly gotoInbox = new Map<string, string[]>();
   readonly rooms: string[];
 
   constructor(opts: SharedWorldOptions) {
@@ -325,6 +332,28 @@ export class SharedWorld {
         }))
         .sort((a, b) => a.slug.localeCompare(b.slug));
     } catch { return []; }
+  }
+
+  /**
+   * Hand an NPC a movement directive (a `goto` effect from talk). It does NOT
+   * move the NPC — it queues the place/person name for the NPC's PlanExecutor,
+   * which drains it next tick and walks there one hop at a time. In-process.
+   */
+  pushGoto(npcId: string, place: string): void {
+    const p = place.trim();
+    if (!p) return;
+    const q = this.gotoInbox.get(npcId) ?? [];
+    if (q[q.length - 1] === p) return; // de-dup a repeated directive
+    q.push(p);
+    this.gotoInbox.set(npcId, q);
+  }
+
+  /** Drain (and clear) an NPC's pending goto directives — the executor calls this. */
+  takeGoto(npcId: string): string[] {
+    const q = this.gotoInbox.get(npcId);
+    if (!q || !q.length) return [];
+    this.gotoInbox.delete(npcId);
+    return q;
   }
 
   /**
@@ -1025,6 +1054,15 @@ export class SharedWorld {
     );
 
     if (oracleOut.say) void this.logEvent(input.npcId, 'say', `对 ${interlocutor.name} 说:「${oracleOut.say.slice(0, 40)}」`);
+
+    // movement intent (goto 算子): the NPC means to go somewhere — queue it for
+    // its PlanExecutor (drained next tick), don't teleport. Player「去客栈」lands here.
+    for (const e of oracleOut.effects) {
+      if (e.kind === 'goto' && e.place?.trim()) {
+        this.pushGoto(input.npcId, e.place.trim());
+        void this.logEvent(input.npcId, 'move', `打算动身去「${e.place.trim()}」`);
+      }
+    }
 
     // --- 耗(thinking burn): settle this turn's GCC via the injected strategy ---
     // x402 facilitator nanopayment when configured (per-turn EIP-3009 → /verify

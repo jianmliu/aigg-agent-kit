@@ -125,6 +125,7 @@ export class LlmAgent implements Agent {
     lines.push('- effects: 数组，可选。允许的项：');
     lines.push('  {"kind":"adjustRelationship","delta":整数(-20~20),"reason":"原因"}');
     lines.push('  {"kind":"setFlag","flag":"字符串","value":数字}');
+    lines.push('  {"kind":"goto","place":"地名或人名"} —— 当对方请你去某处、或你决意动身前往某地/找某人时输出(如「客栈」「集市」「张四」);你只是起意，真正走过去要花时间');
     lines.push('- emotion: 你此刻的情绪（可选）');
     lines.push('示例：{"say":"哈哈，又见面了！","effects":[{"kind":"adjustRelationship","delta":5,"reason":"玩家请喝酒"}],"emotion":"高兴"}');
     return lines.join('\n');

@@ -16,7 +16,11 @@ export type Effect =
   | { kind: 'giveItem'; itemId: number; qty: number }
   | { kind: 'takeItem'; itemId: number; qty: number }
   | { kind: 'startQuest'; questId: string }
-  | { kind: 'advanceQuest'; questId: string; step: string };
+  | { kind: 'advanceQuest'; questId: string; step: string }
+  // movement intent: the NPC means to GO somewhere (a place name or a person).
+  // The kernel never teleports on it — the host's PlanExecutor resolves `place`
+  // against its room aliases/roster and walks the NPC there one hop per tick.
+  | { kind: 'goto'; place: string };
 
 export type EffectKind = Effect['kind'];
 
@@ -27,5 +31,6 @@ export const ALL_EFFECT_KINDS: readonly EffectKind[] = [
   'giveItem',
   'takeItem',
   'startQuest',
-  'advanceQuest'
+  'advanceQuest',
+  'goto'
 ];

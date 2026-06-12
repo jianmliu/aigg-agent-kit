@@ -25,6 +25,17 @@ class Scripted implements InferenceProvider {
   }
 }
 
+/** emits a `goto` effect — models the NPC being told「去药铺」by the player. */
+class GotoProvider implements InferenceProvider {
+  readonly id = 'goto';
+  async complete(): Promise<InferenceResult> {
+    return {
+      text: JSON.stringify({ say: '好，我这就去。', effects: [{ kind: 'goto', place: '药铺' }], emotion: '' }),
+      usage: { model: 'g', inputTokens: 1, outputTokens: 1, gccCost: 0 }
+    };
+  }
+}
+
 /** fake aigg-memory: serves plan units (one stale) for planSteps(). */
 function fakeMemory(): AiggMemoryClient {
   const client = new AiggMemoryClient({ baseUrl: 'http://fake' });
@@ -100,6 +111,30 @@ async function main() {
     a = await ex2.runTick();
     assert.deepEqual({ kind: a.kind, to: (a as any).to }, { kind: 'move', to: '药铺' }, 'memory-fed queue drives the walk');
     console.log('  ✓ planSteps: kind=plan units feed the queue; stale = the deterministic re-plan trigger');
+
+    // 5. goto 算子: a talk that emits goto → inbox → executor walks there, preempting
+    const world3 = new SharedWorld({ store: new InMemoryStore(), provider: new GotoProvider(), metabolism: rich, rooms: Object.keys(GRAPH) });
+    const lan = await world3.createNpc({ name: '香兰', owner: 'host:pal', background: '丁家长女', room: '集市', startGcc: 2 });
+    const ex3 = new PlanExecutor(world3, { npcId: lan, roomGraph: GRAPH, roomAliases: ALIASES });
+
+    // idle until told
+    assert.equal((await ex3.runTick()).kind, 'idle', 'no plan, no directive → idle');
+    // the player tells her「去药铺」— talk emits the goto effect → pushGoto
+    await world3.talk({ npcId: lan, visitorId: 'player:你', text: '去药铺' });
+    assert.deepEqual(world3.takeGoto(lan), ['药铺'], 'talk routed the goto effect into the inbox');
+    // (re-arm it since takeGoto above drained it for the assertion)
+    world3.pushGoto(lan, '药铺');
+    a = await ex3.runTick();
+    assert.deepEqual({ kind: a.kind, to: (a as any).to }, { kind: 'move', to: '镇内' }, 'goto walks one hop toward 药铺');
+    a = await ex3.runTick();
+    assert.deepEqual({ kind: a.kind, to: (a as any).to }, { kind: 'move', to: '药铺' }, 'second hop arrives');
+
+    // preemption: mid-nothing, a fresh goto leads even over a standing queued step
+    const ex4 = new PlanExecutor(world3, { npcId: lan, roomGraph: GRAPH, roomAliases: ALIASES, steps: ['去菜市场看看'] });
+    world3.pushGoto(lan, '民居');             // 香兰 is now at 药铺
+    a = await ex4.runTick();
+    assert.deepEqual({ kind: a.kind, to: (a as any).to }, { kind: 'move', to: '镇内' }, 'fresh goto preempts the standing step');
+    console.log('  ✓ goto 算子: talk→inbox→executor walks there, preempting standing plans');
 
     console.log('\nPLAN-EXECUTOR SMOKE PASSED ✅');
   } finally {
