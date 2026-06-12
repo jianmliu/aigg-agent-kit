@@ -37,6 +37,7 @@ const W: Scope = { type: 'world' };
 const ONCHAIN = { onchain: true } as const;
 const npcKey = (id: string) => `npc:${id}`;
 const gccKey = (id: string) => `npc:${id}:gcc`;
+const silverKey = (id: string) => `npc:${id}:silver`;   // off-chain 游戏货币(银两)账,与 gcc 并列但不带 ONCHAIN
 const diaryKey = (id: string) => `npc:${id}:diary`;   // off-chain 夜记 log (narrative, not a typed memory unit)
 const logKey = (id: string) => `npc:${id}:log`;       // off-chain 3rd-person system log (debug: say/move/pitch/dream)
 const riceKey = (id: string) => `npc:${id}:rice`;
@@ -61,7 +62,7 @@ export interface NpcRecord {
    */
   status?: 'draft' | 'active';
 }
-export interface NpcSummary { id: string; name: string; room: string; owner: string; balanceGcc: number; draft?: boolean }
+export interface NpcSummary { id: string; name: string; room: string; owner: string; balanceGcc: number; balanceSilver: number; draft?: boolean }
 export interface TalkResult {
   said: string | null;
   affinity: number;
@@ -197,6 +198,12 @@ export interface SharedWorldOptions {
   personaResolver?: (rec: NpcRecord, memoryBundle?: string) => NpcPersona | undefined;
   /** 需求多轴配置(轴/衰减率/阈值/房间满足表)——host 从 WorldDef.needs 注入;无则 DEFAULT_NEEDS_CONFIG。 */
   needs?: NeedsConfig;
+  /**
+   * 单向兑换桥配置(银两 → GCC)——host 从 WorldDef.economy.exchange 注入。
+   * enabled:开关(默认关,保守);rate:每 1 GCC 需多少银两;dailyCapSilver:每日可兑换银两上限。
+   * 未注入 → 桥默认关闭(exchangeSilverForGcc 直接 reason:'exchange_disabled')。
+   */
+  exchange?: { enabled: boolean; rate: number; dailyCapSilver: number };
 }
 
 export class SharedWorld {
@@ -216,6 +223,8 @@ export class SharedWorld {
   private readonly settlementLayer?: SettlementLayer;
   private readonly personaResolver?: (rec: NpcRecord, memoryBundle?: string) => NpcPersona | undefined;
   private readonly needsCfg: NeedsConfig;
+  /** 兑换桥配置(单向 银两→GCC)——未注入 → 默认关闭、保守汇率。 */
+  private readonly exchangeCfg: { enabled: boolean; rate: number; dailyCapSilver: number };
   private readonly onEvents?: (events: WorldEvent[], ctx: { now: number; tx?: WorldTx }) => void;
   /**
    * Draft NPCs — created but never funded. RAM-only by design: no store write,
@@ -250,6 +259,8 @@ export class SharedWorld {
     this.settlementLayer = opts.settlementLayer;
     this.personaResolver = opts.personaResolver;
     this.needsCfg = opts.needs ?? DEFAULT_NEEDS_CONFIG;
+    // 兑换桥默认保守(关闭、rate=100、每日上限 50);WorldDef.economy.exchange 显式开启。
+    this.exchangeCfg = opts.exchange ?? { enabled: false, rate: 100, dailyCapSilver: 50 };
     this.onEvents = opts.onEvents;
     this.rooms = opts.rooms ?? ['广场', '酒馆', '集市'];
   }
@@ -264,7 +275,7 @@ export class SharedWorld {
    * - default (platform seeding, pre-funded NPCs): persisted + active
    *   immediately, exactly as before. Backwards-compatible.
    */
-  async createNpc(input: { name: string; owner: string; background: string; room?: string; startGcc?: number; id?: string; draft?: boolean }): Promise<string> {
+  async createNpc(input: { name: string; owner: string; background: string; room?: string; startGcc?: number; startSilver?: number; id?: string; draft?: boolean }): Promise<string> {
     const id = input.id ?? `npc:${input.name}:${input.owner}`;
     const room = input.room && this.rooms.includes(input.room) ? input.room : this.rooms[0];
     if (input.draft) {
@@ -275,6 +286,8 @@ export class SharedWorld {
     const rec: NpcRecord = { id, name: input.name, owner: input.owner, room, background: input.background.trim(), status: 'active' };
     await this.store.set(W, npcKey(id), rec, ONCHAIN);
     await this.store.set(W, gccKey(id), input.startGcc ?? 0, ONCHAIN);
+    // 银两 = off-chain 游戏货币(无 ONCHAIN);默认底 10,让新 NPC 开局能买米。
+    await this.store.set(W, silverKey(id), input.startSilver ?? 10);
     await this.addToRegistry(id);
     void this.seedGoal(rec); // fire-and-forget: give the NPC a planning seed (kind=goal) so plan() has something to plan toward
     this.emit([{ kind: 'npcCreated', npcId: id, status: 'active' }], { now: Date.now() });
@@ -693,24 +706,32 @@ export class SharedWorld {
   // (per-NPC holdings under npc:<id>:rice). 米价 = 银储/米储.
 
   async initRiceMarket(input: { rice: number; silver: number }): Promise<MarketState> {
-    const m: MarketState = { gccReserve: input.rice, usdcReserve: input.silver, supply: 0 };
+    const m: MarketState = { riceReserve: input.rice, silverReserve: input.silver, supply: 0 };
     await this.store.set(W, RICE_MARKET, m, ONCHAIN);
     const now = Date.now();
     this.emit(
-      [{ kind: 'marketInit', gccReserve: m.gccReserve, usdcReserve: m.usdcReserve, supply: 0 } as WorldEvent],
-      { now, tx: { type: 'initMarket', gccReserve: m.gccReserve, usdcReserve: m.usdcReserve } as WorldTx }
+      [{ kind: 'marketInit', riceReserve: m.riceReserve, silverReserve: m.silverReserve, supply: 0 } as WorldEvent],
+      { now, tx: { type: 'initMarket', riceReserve: m.riceReserve, silverReserve: m.silverReserve } as WorldTx }
     );
     return m;
   }
 
   async riceMarket(): Promise<MarketState | null> {
-    return (await this.store.get<MarketState>(W, RICE_MARKET)) ?? null;
+    const m = await this.store.get<MarketState>(W, RICE_MARKET);
+    if (!m) return null;
+    // 惰性迁移:旧 store 写的是 {gccReserve,usdcReserve,supply}(经济分离前的命名),
+    // 正名后 m.riceReserve 读旧数据 = undefined → NaN。一次读即归一为新形(米储/银储)。
+    const legacy = m as unknown as { gccReserve?: number; usdcReserve?: number };
+    if (legacy.gccReserve !== undefined && m.riceReserve === undefined) {
+      return { riceReserve: legacy.gccReserve, silverReserve: legacy.usdcReserve ?? 0, supply: m.supply };
+    }
+    return m;
   }
 
   /** spot 米价 (银两 per 米) — null until the market is seeded. */
   async ricePrice(): Promise<number | null> {
     const m = await this.riceMarket();
-    return m ? m.usdcReserve / m.gccReserve : null;
+    return m ? m.silverReserve / m.riceReserve : null;
   }
 
   async riceHolding(npcId: string): Promise<number> {
@@ -724,18 +745,38 @@ export class SharedWorld {
     return next;
   }
 
+  /** host-level provisioning(发银两)—— 给 NPC 补游戏货币,语义同 grantRice/startGcc,非交易。
+   *  对外 public(seed/兜底用);内部转账走私有 addSilver。 */
+  async grantSilver(npcId: string, amount: number): Promise<number> {
+    return this.addSilver(npcId, amount);
+  }
+
+  /**
+   * 暖启动迁移兜底:经济分离前落盘的 NPC 持久化了 npcKey+gccKey 但**从无** silverKey
+   * (createNpc 默认底只在新建时写)。重启后 balanceSilver 对缺键返回 0 → 买不到米/下不了注。
+   * 此处对「silverKey 完全缺失」的 NPC 一次性补到 floor;判据是缺键(undefined)而非 ===0,
+   * 故交易归零的合法穷 NPC 不会被反复回填,seed 跨重启幂等。返回是否实际回填。
+   */
+  async backfillSilver(npcId: string, floor = 10): Promise<boolean> {
+    const present = await this.store.get<number>(W, silverKey(npcId));
+    if (present != null) return false;            // 已有 silver 账(含合法的 0)→ 不动
+    await this.store.set(W, silverKey(npcId), Math.max(0, floor));
+    return true;
+  }
+
   /**
    * 囤米 (buy: 银→米) / 抛米 (sell: 米→银) via the pure STF — the rejection
    * paths (no market / bad amount / insufficient 银两 or 米) come back as
    * ok:false with the STF's reason, and nothing moves.
    */
   async tradeRice(input: { npcId: string; side: 'buy' | 'sell'; amount: number }): Promise<{
-    ok: boolean; reason?: string; out: number; price: number | null; balanceGcc: number; rice: number;
+    ok: boolean; reason?: string; out: number; price: number | null; balanceSilver: number; rice: number;
   }> {
     const rec = await this.getNpc(input.npcId);
     if (!rec) throw new Error(`no npc ${input.npcId}`);
     const market = await this.riceMarket();
-    const silver = await this.balanceGcc(input.npcId);
+    // 货币边 = 银两(off-chain 游戏货币),不再读思考燃料 GCC —— 经济分离的核心修复。
+    const silver = await this.balanceSilver(input.npcId);
     const rice = await this.riceHolding(input.npcId);
     const now = Date.now();
     const slice: WorldState = {
@@ -748,16 +789,17 @@ export class SharedWorld {
     const { state: applied, events } = applyTx(slice, tx, new DefaultGameRules(() => undefined));
     const rejected = events.find((e) => (e as { kind?: string }).kind === 'rejected') as { reason?: string } | undefined;
     if (rejected) {
-      return { ok: false, reason: rejected.reason, out: 0, price: market ? market.usdcReserve / market.gccReserve : null, balanceGcc: silver, rice };
+      return { ok: false, reason: rejected.reason, out: 0, price: market ? market.silverReserve / market.riceReserve : null, balanceSilver: silver, rice };
     }
     const newRice = applied.balances[input.npcId];
     const newSilver = (applied.usdc ?? {})[input.npcId] ?? silver;
     await this.store.set(W, riceKey(input.npcId), newRice, ONCHAIN);
-    await this.store.set(W, gccKey(input.npcId), newSilver, ONCHAIN);
+    // 银两写回 off-chain 账(silverKey,无 ONCHAIN)—— 游戏货币永不上链。
+    await this.store.set(W, silverKey(input.npcId), newSilver);
     await this.store.set(W, RICE_MARKET, applied.market!, ONCHAIN);
     this.emit(events, { now, tx });
     const traded = events.find((e) => (e as { kind?: string }).kind === 'traded') as { out: number; price: number };
-    return { ok: true, out: traded.out, price: traded.price, balanceGcc: newSilver, rice: newRice };
+    return { ok: true, out: traded.out, price: traded.price, balanceSilver: newSilver, rice: newRice };
   }
 
   // --- 赌坊 (parimutuel on the rice price) -----------------------------------
@@ -784,12 +826,13 @@ export class SharedWorld {
   }
 
   async placeRiceBet(input: { npcId: string; marketId: string; side: 'YES' | 'NO'; amount: number }): Promise<{
-    ok: boolean; reason?: string; balanceGcc: number; yesPool: number; noPool: number;
+    ok: boolean; reason?: string; balanceSilver: number; yesPool: number; noPool: number;
   }> {
     const rec = await this.getNpc(input.npcId);
     if (!rec) throw new Error(`no npc ${input.npcId}`);
     const markets = await this.riceBets();
-    const silver = await this.balanceGcc(input.npcId);
+    // 下注本金 = 银两(赌的是生计,不是算力)。
+    const silver = await this.balanceSilver(input.npcId);
     const now = Date.now();
     const slice: WorldState = {
       npcs: {}, registry: [], relationships: {}, flags: {}, balances: {},
@@ -799,11 +842,11 @@ export class SharedWorld {
     const { state: applied, events } = applyTx(slice, tx, new DefaultGameRules(() => undefined));
     const rejected = events.find((e) => (e as { kind?: string }).kind === 'rejected') as { reason?: string } | undefined;
     const m = (applied.markets ?? {})[input.marketId];
-    if (rejected) return { ok: false, reason: rejected.reason, balanceGcc: silver, yesPool: m?.yesPool ?? 0, noPool: m?.noPool ?? 0 };
-    await this.store.set(W, gccKey(input.npcId), (applied.usdc ?? {})[input.npcId] ?? silver, ONCHAIN);
+    if (rejected) return { ok: false, reason: rejected.reason, balanceSilver: silver, yesPool: m?.yesPool ?? 0, noPool: m?.noPool ?? 0 };
+    await this.store.set(W, silverKey(input.npcId), (applied.usdc ?? {})[input.npcId] ?? silver);
     await this.store.set(W, RICE_BETS, applied.markets, ONCHAIN);
     this.emit(events, { now, tx });
-    return { ok: true, balanceGcc: (applied.usdc ?? {})[input.npcId] ?? silver, yesPool: m.yesPool, noPool: m.noPool };
+    return { ok: true, balanceSilver: (applied.usdc ?? {})[input.npcId] ?? silver, yesPool: m.yesPool, noPool: m.noPool };
   }
 
   /** 秋收结算 — resolves against the CURRENT rice price and pays every staker. */
@@ -814,7 +857,8 @@ export class SharedWorld {
     const market = await this.riceMarket();
     const stakers = Object.keys(markets[marketId]?.stakes ?? {});
     const usdc: Record<string, number> = {};
-    for (const id of stakers) usdc[id] = await this.balanceGcc(id);
+    // 赔付走银两账(下注本金即银两)。
+    for (const id of stakers) usdc[id] = await this.balanceSilver(id);
     const now = Date.now();
     const slice: WorldState = {
       npcs: {}, registry: [], relationships: {}, flags: {}, balances: {},
@@ -825,7 +869,7 @@ export class SharedWorld {
     const rejected = events.find((e) => (e as { kind?: string }).kind === 'rejected') as { reason?: string } | undefined;
     if (rejected) return { ok: false, reason: rejected.reason };
     for (const id of stakers) {
-      await this.store.set(W, gccKey(id), (applied.usdc ?? {})[id] ?? usdc[id], ONCHAIN);
+      await this.store.set(W, silverKey(id), (applied.usdc ?? {})[id] ?? usdc[id]);
     }
     await this.store.set(W, RICE_BETS, applied.markets, ONCHAIN);
     this.emit(events, { now, tx });
@@ -881,6 +925,44 @@ export class SharedWorld {
       return this.balanceGcc(npcId);
     }
     return this.addGcc(npcId, gcc);
+  }
+
+  /** 银两改账(off-chain 游戏货币)—— clamp ≥0,**永不**走 settlementLayer/balances 链上 rail,
+   *  **永不**带 ONCHAIN。私有:对外发银两走 grantSilver,内部转账(交易/兑换)走此。 */
+  private async addSilver(npcId: string, delta: number): Promise<number> {
+    const bal = Math.max(0, (await this.balanceSilver(npcId)) + delta);
+    await this.store.set(W, silverKey(npcId), bal);
+    return bal;
+  }
+
+  /**
+   * 兑换桥(单向:银两 → GCC)—— 扣 off-chain 银两、铸入链上 GCC(经 addGcc:走
+   * settlementLayer.deposit 或 store.set gccKey ONCHAIN),对齐 spec「GCC 只增于充值/兑换」。
+   * 门控:开关 / 金额 / 余额 / 每日上限。**无反向**(GCC 不能换回银两 → 防游戏币套现真金)。
+   */
+  async exchangeSilverForGcc(input: { npcId: string; silver: number }): Promise<{
+    ok: boolean; reason?: string; spentSilver: number; gotGcc: number; balanceSilver: number; balanceGcc: number;
+  }> {
+    const cfg = this.exchangeCfg;
+    const balSilver = await this.balanceSilver(input.npcId);
+    const balGcc = await this.balanceGcc(input.npcId);
+    const fail = (reason: string) => ({ ok: false, reason, spentSilver: 0, gotGcc: 0, balanceSilver: balSilver, balanceGcc: balGcc });
+    if (!cfg.enabled) return fail('exchange_disabled');
+    if (!(input.silver > 0)) return fail('bad_amount');
+    if (input.silver > balSilver) return fail('insufficient_silver');
+    // 每日上限:按 store 里记录的当日累计判定(day = floor(now / 一天))。
+    const dayKey = `npc:${input.npcId}:exchange:day`;
+    const today = Math.floor(Date.now() / 86_400_000);
+    const rec = (await this.store.get<{ day: number; used: number }>(W, dayKey)) ?? { day: today, used: 0 };
+    const usedToday = rec.day === today ? rec.used : 0;
+    if (usedToday + input.silver > cfg.dailyCapSilver) return fail('daily_cap');
+    // 扣银两(off-chain 销毁)+ 加 GCC(链上铸入,经 addGcc)。
+    const newSilver = await this.addSilver(input.npcId, -input.silver);
+    const gotGcc = input.silver / cfg.rate;
+    const newGcc = await this.addGcc(input.npcId, gotGcc);
+    await this.store.set(W, dayKey, { day: today, used: usedToday + input.silver });
+    this.emit([{ kind: 'exchanged', npcId: input.npcId, silver: input.silver, gcc: gotGcc, balanceGcc: newGcc } as WorldEvent], { now: Date.now() });
+    return { ok: true, spentSilver: input.silver, gotGcc, balanceSilver: newSilver, balanceGcc: newGcc };
   }
 
   private async addGcc(npcId: string, gcc: number): Promise<number> {
@@ -958,6 +1040,10 @@ export class SharedWorld {
     }
     return (await this.store.get<number>(W, gccKey(npcId))) ?? 0;
   }
+  /** 读银两(off-chain 游戏货币)—— 永远只在 store,绝不读 settlementLayer/balances 链上 rail。 */
+  async balanceSilver(npcId: string): Promise<number> {
+    return (await this.store.get<number>(W, silverKey(npcId))) ?? 0;
+  }
   /**
    * List NPCs. Persisted (activated) NPCs are visible to everyone; RAM drafts
    * are visible ONLY to their owner (pass `viewerId`). No viewer → activated only.
@@ -967,11 +1053,11 @@ export class SharedWorld {
     const out: NpcSummary[] = [];
     for (const id of reg) {
       const r = await this.getNpc(id);
-      if (r) out.push({ id, name: r.name, room: r.room, owner: r.owner, balanceGcc: await this.balanceGcc(id) });
+      if (r) out.push({ id, name: r.name, room: r.room, owner: r.owner, balanceGcc: await this.balanceGcc(id), balanceSilver: await this.balanceSilver(id) });
     }
     if (viewerId) {
       for (const r of this.draftNpcs.values()) {
-        if (r.owner === viewerId) out.push({ id: r.id, name: r.name, room: r.room, owner: r.owner, balanceGcc: 0, draft: true });
+        if (r.owner === viewerId) out.push({ id: r.id, name: r.name, room: r.room, owner: r.owner, balanceGcc: 0, balanceSilver: 0, draft: true });
       }
     }
     return out;

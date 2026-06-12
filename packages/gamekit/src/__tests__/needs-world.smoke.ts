@@ -75,10 +75,10 @@ async function main() {
   const prod = t1.trades.find((x) => x.shock === '产出');
   assert.ok(prod && prod.side === 'sell', '生产岗向市场供给(sell)');
   const afterProd = (await world.riceMarket())!;
-  assert.ok(afterProd.gccReserve > before.gccReserve, '供给增:米储上升');
-  assert.ok(afterProd.usdcReserve < before.usdcReserve, '价跌:银储下降(米价走低)');
-  assert.ok(close(afterProd.gccReserve * afterProd.usdcReserve, k0), 'k 守恒(生产 sell)');
-  const priceAfterProd = afterProd.usdcReserve / afterProd.gccReserve;
+  assert.ok(afterProd.riceReserve > before.riceReserve, '供给增:米储上升');
+  assert.ok(afterProd.silverReserve < before.silverReserve, '价跌:银储下降(米价走低)');
+  assert.ok(close(afterProd.riceReserve * afterProd.silverReserve, k0), 'k 守恒(生产 sell)');
+  const priceAfterProd = afterProd.silverReserve / afterProd.riceReserve;
   console.log(`  ✓ 生产岗 sell 50 → 米储增、米价 0.5 → ${priceAfterProd.toFixed(4)}(供给增价跌),k 不变`);
 
   // 消费:饿汉进食 = 从市场 buy → 抽走供给、价回
@@ -86,9 +86,9 @@ async function main() {
   assert.equal(buy.ok, true, '饿汉有银两,进食成交');
   await world.satisfyNeed(eater, '食', 40);
   const afterEat = (await world.riceMarket())!;
-  assert.ok(afterEat.gccReserve < afterProd.gccReserve, '消费减:米储下降(抽走供给)');
-  assert.ok(close(afterEat.gccReserve * afterEat.usdcReserve, k0), 'k 守恒(消费 buy)');
-  const priceAfterEat = afterEat.usdcReserve / afterEat.gccReserve;
+  assert.ok(afterEat.riceReserve < afterProd.riceReserve, '消费减:米储下降(抽走供给)');
+  assert.ok(close(afterEat.riceReserve * afterEat.silverReserve, k0), 'k 守恒(消费 buy)');
+  const priceAfterEat = afterEat.silverReserve / afterEat.riceReserve;
   assert.ok(priceAfterEat > priceAfterProd, '消费抽走供给 → 米价回升');
   assert.ok((await world.needsOf(eater)).食! >= 30, 'satisfyNeed 回填食轴(进食后不再饿)');
   console.log(`  ✓ 消费 buy 10(进食)→ 米储减、米价 ${priceAfterProd.toFixed(4)} → ${priceAfterEat.toFixed(4)}(价回),k 不变`);

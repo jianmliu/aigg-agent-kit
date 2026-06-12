@@ -23,7 +23,8 @@
     "test:verifiable": "tsx src/__tests__/verifiable-execution.smoke.ts",
     "test:persona": "tsx src/__tests__/persona-resolver.smoke.ts",
     "test:tick": "tsx src/__tests__/shared-world-tick.smoke.ts",
-    "test:needs": "tsx src/__tests__/needs-world.smoke.ts"
+    "test:needs": "tsx src/__tests__/needs-world.smoke.ts",
+    "test:economy-split": "tsx src/__tests__/economy-split.smoke.ts"
   },
   "dependencies": {
     "@onchainpal/npc-agent": "workspace:*",
