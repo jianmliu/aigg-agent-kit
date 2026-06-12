@@ -262,22 +262,22 @@ export class SharedWorld {
     await this.store.set(W, npcKey(id), rec, ONCHAIN);
     await this.store.set(W, gccKey(id), input.startGcc ?? 0, ONCHAIN);
     await this.addToRegistry(id);
-    this.seedGoal(rec); // give the NPC a planning seed (kind=goal) so plan() has something to plan toward
+    void this.seedGoal(rec); // fire-and-forget: give the NPC a planning seed (kind=goal) so plan() has something to plan toward
     this.emit([{ kind: 'npcCreated', npcId: id, status: 'active' }], { now: Date.now() });
     return id;
   }
 
   /** Write a kind=goal unit from the NPC's persona — plan() synthesizes intentions
    *  FROM goals/beliefs, not facts, so without a goal seed there is nothing to plan. */
-  private seedGoal(rec: NpcRecord): void {
+  private async seedGoal(rec: NpcRecord): Promise<void> {
     if (!this.memory || !rec.background) return;
-    this.memory.remember({
+    await this.memory.remember({
       slug: `${this.safeNpcSeg(rec.id)}_goal`,
       name: `${rec.name}的目标`,
       kind: 'goal',
       description: `履行${rec.name}的身份与职责：${rec.background.trim()}`,
       match: [rec.name, 'goal', '目标'],
-    }, { corpus: this.memoryCorpus(rec.id), evidence: this.memoryEvidence(rec.id) }).catch(() => { /* never blocks */ });
+    }, { corpus: await this.memoryCorpus(rec.id), evidence: await this.memoryEvidence(rec.id) }).catch(() => { /* never blocks */ });
   }
 
   /**
@@ -291,7 +291,7 @@ export class SharedWorld {
     if (!this.memory) return null;
     try {
       return await this.memory.plan({
-        corpus: this.memoryCorpus(npcId), now: opts.now, write: true, goals: opts.goals,
+        corpus: await this.memoryCorpus(npcId), now: opts.now, write: true, goals: opts.goals,
         aiggUrl: opts.aiggUrl, aiggKey: opts.aiggKey, model: opts.model, backend: opts.backend, timeout: opts.timeout,
       });
     } catch { return null; }
@@ -309,7 +309,7 @@ export class SharedWorld {
       await this.memory.remember({
         slug: slug.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_'),
         name: slug, kind: 'goal', description: text, match: [slug]
-      }, { corpus: this.memoryCorpus(npcId), evidence: this.memoryEvidence(npcId) });
+      }, { corpus: await this.memoryCorpus(npcId), evidence: await this.memoryEvidence(npcId) });
       return true;
     } catch { return false; }
   }
@@ -323,7 +323,7 @@ export class SharedWorld {
   async planSteps(npcId: string): Promise<Array<{ slug: string; text: string }>> {
     if (!this.memory) return [];
     try {
-      const r = await this.memory.units({ corpus: this.memoryCorpus(npcId) });
+      const r = await this.memory.units({ corpus: await this.memoryCorpus(npcId) });
       return (r.units ?? [])
         .filter((u) => u.kind === 'plan' && u.status !== 'archived' && u.status !== 'stale')
         .map((u) => ({
@@ -366,7 +366,7 @@ export class SharedWorld {
    */
   async dream(npcId: string, now: number = 0): Promise<{ beliefs: string[]; verified: number; diary?: string } | null> {
     if (!this.memory || !this.memoryModel) return null;
-    const corpus = this.memoryCorpus(npcId);
+    const corpus = await this.memoryCorpus(npcId);
     // reflect (GLM) + verify — their own try: a reasoning-model hiccup
     // (content:null) here must NOT abort the 夜记 below.
     let beliefs: string[] = [];
@@ -478,7 +478,7 @@ export class SharedWorld {
       let beliefs = 0, episodes = 0;
       const beliefNames: string[] = [];
       if (this.memory) {
-        const u = await this.memory.units({ corpus: this.memoryCorpus(npcId) });
+        const u = await this.memory.units({ corpus: await this.memoryCorpus(npcId) });
         for (const x of (u?.units ?? [])) {
           if (x.status === 'archived') continue;
           if (x.kind === 'belief') { beliefs++; if (x.name) beliefNames.push(x.name); }
@@ -514,8 +514,8 @@ export class SharedWorld {
     const scam = input.scam ?? true;
     const bal0 = await this.balanceGcc(input.npcId);
     const now = Date.now();
-    const corpus = this.memoryCorpus(input.npcId);
-    const evidence = this.memoryEvidence(input.npcId);
+    const corpus = await this.memoryCorpus(input.npcId);
+    const evidence = await this.memoryEvidence(input.npcId);
     const topic = input.fromId; // the counterpart — discernment scans episodes citing them
 
     // decide BY memory: a verified wary belief about this counterpart/offer → refuse
@@ -611,8 +611,8 @@ export class SharedWorld {
     const from = await this.getNpc(input.fromNpcId);
     const speaker = from?.name ?? input.fromNpcId;
     const now = input.now ?? Date.now();
-    const corpus = this.memoryCorpus(input.toNpcId);
-    const evidence = this.memoryEvidence(input.toNpcId);
+    const corpus = await this.memoryCorpus(input.toNpcId);
+    const evidence = await this.memoryEvidence(input.toNpcId);
     const safe = (s: string) => s.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_');
     const hearsay = safe(`streettalk_${input.about}_${now}`);
     try {
@@ -930,14 +930,42 @@ export class SharedWorld {
   // --- interaction ---------------------------------------------------------
   /**
    * corpus and evidence paths for a given NPC — used by the memory client.
-   * Layout: npcs/<npcId>/memory/ + npcs/<npcId>/evidence.jsonl so every NPC
-   * gets its own isolated typed-memory corpus.
+   *
+   * Two layouts (multiverse spec §3 — memory follows the SOUL, not the world):
+   *   minted agent → agent/<tokenId>/memory          (world-independent: the
+   *     NPC keeps its 心得/识破 when it migrates to another world)
+   *   draft/local  → <ns>npcs/<npcId>/memory         (legacy world-local)
+   *
+   * The mint is detected via the `npc:<id>:tokenId` identity key the host's
+   * activator records in this same store (crossServerStable mirrors it — the
+   * mapping federates with the NPC, so any server resolves the same corpus).
+   * tokenIds are immutable → positives cached; negatives are NOT cached, so a
+   * fresh mint switches the corpus on the very next turn, no restart.
+   *
+   * NB: aigg-memory's `_agent_id(corpus)` returns 'self' for any corpus whose
+   * first segment is not 'npcs' — `agent/<tokenId>/…` therefore keeps the
+   * faculty-belief axis (asserted_by:'self') working unchanged.
    */
+  private readonly agentSegCache = new Map<string, string>();
+  private async agentSeg(npcId: string): Promise<string | null> {
+    const hit = this.agentSegCache.get(npcId);
+    if (hit) return hit;
+    const v = await this.store.get<string>(W, `npc:${npcId}:tokenId`);
+    if (!v) return null;
+    this.agentSegCache.set(npcId, String(v));
+    return String(v);
+  }
   /** path-safe corpus segment — npcIds contain ':' (e.g. "npc:鸿蒙:owner"), which the
    *  memory server rejects in paths. CJK is fine; only special chars are replaced. */
   private safeNpcSeg(npcId: string): string { return npcId.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_'); }
-  private memoryCorpus(npcId: string): string { return `${this.memoryNs}npcs/${this.safeNpcSeg(npcId)}/memory`; }
-  private memoryEvidence(npcId: string): string { return `${this.memoryNs}npcs/${this.safeNpcSeg(npcId)}/evidence.jsonl`; }
+  private async memoryCorpus(npcId: string): Promise<string> {
+    const seg = await this.agentSeg(npcId);
+    return seg ? `agent/${seg}/memory` : `${this.memoryNs}npcs/${this.safeNpcSeg(npcId)}/memory`;
+  }
+  private async memoryEvidence(npcId: string): Promise<string> {
+    const seg = await this.agentSeg(npcId);
+    return seg ? `agent/${seg}/evidence.jsonl` : `${this.memoryNs}npcs/${this.safeNpcSeg(npcId)}/evidence.jsonl`;
+  }
 
   private personaFor(rec: NpcRecord, memoryBundle?: string): NpcPersona {
     const custom = this.personaResolver?.(rec, memoryBundle);
@@ -967,7 +995,7 @@ export class SharedWorld {
       try {
         const sel = await this.memory.select(
           `${input.visitorId} ${input.text}`,
-          { corpus: this.memoryCorpus(input.npcId), n_best: 4, kinds: ['semantic', 'episodic'] }
+          { corpus: await this.memoryCorpus(input.npcId), n_best: 4, kinds: ['semantic', 'episodic'] }
         );
         if (sel.bundle.trim()) memoryBundle = `【记忆】\n${sel.bundle.trim()}`;
       } catch { /* memory service down — degrade gracefully */ }
@@ -987,7 +1015,7 @@ export class SharedWorld {
       for (const topic of topics) {
         try {
           const d = await this.memory.discernment(topic, {
-            corpus: this.memoryCorpus(input.npcId), mode: 'provenance', minConfidence: this.discernmentTheta,
+            corpus: await this.memoryCorpus(input.npcId), mode: 'provenance', minConfidence: this.discernmentTheta,
           });
           if (d && d.q > 0) {
             discernment = d;
@@ -1099,8 +1127,8 @@ export class SharedWorld {
     // extract — it only promotes already-structured observations — so writing the
     // fact directly is the correct path; raw-dialogue extraction would use ingest().
     if (this.memory && !starving) {
-      const corpus = this.memoryCorpus(input.npcId);
-      const evidence = this.memoryEvidence(input.npcId);
+      const corpus = await this.memoryCorpus(input.npcId);
+      const evidence = await this.memoryEvidence(input.npcId);
       this.memory.remember({
         slug: `${input.visitorId.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_')}_${now}`,
         name: input.visitorId,
