@@ -33,6 +33,7 @@ const W: Scope = { type: 'world' };
 const ONCHAIN = { onchain: true } as const;
 const npcKey = (id: string) => `npc:${id}`;
 const gccKey = (id: string) => `npc:${id}:gcc`;
+const diaryKey = (id: string) => `npc:${id}:diary`;   // off-chain 夜记 log (narrative, not a typed memory unit)
 const riceKey = (id: string) => `npc:${id}:rice`;
 const RICE_MARKET = 'world:market:rice';
 const RICE_BETS = 'world:market:bets';
@@ -333,9 +334,13 @@ export class SharedWorld {
    * rich metabolism tier; callable explicitly by the host. Returns null without
    * a memory client + model config.
    */
-  async dream(npcId: string, now: number = 0): Promise<{ beliefs: string[]; verified: number } | null> {
+  async dream(npcId: string, now: number = 0): Promise<{ beliefs: string[]; verified: number; diary?: string } | null> {
     if (!this.memory || !this.memoryModel) return null;
     const corpus = this.memoryCorpus(npcId);
+    // reflect (GLM) + verify — their own try: a reasoning-model hiccup
+    // (content:null) here must NOT abort the 夜记 below.
+    let beliefs: string[] = [];
+    let verified = 0;
     try {
       const r = await this.memory.reflect({
         corpus, write: true,
@@ -343,8 +348,100 @@ export class SharedWorld {
         model: this.memoryModel.model, backend: this.memoryModel.backend, timeout: this.memoryModel.timeout,
       });
       const v = await this.memory.verify({ corpus, write: true, ...(now ? { now: new Date(now).toISOString() } : {}) });
-      return { beliefs: (r.written ?? []) as string[], verified: Object.keys(v.verified ?? {}).length };
+      beliefs = (r.written ?? []) as string[];
+      verified = Object.keys(v.verified ?? {}).length;
+    } catch { /* reflect/verify failed — still write the diary from current beliefs */ }
+
+    // 夜记 — a first-person diary of the night, written by a fast prose model
+    // (qwen3-vl via the shim). The profile reads these; reflect only makes typed
+    // beliefs, so the legible "心路" is otherwise invisible.
+    let diary: string | undefined;
+    try {
+      const rec = await this.getNpc(npcId);
+      // the night turns over the NEW conclusions if reflect formed any, else the
+      // NPC's CURRENT beliefs (incl. the faculty belief a fresh loss just wrote).
+      let topics = beliefs.slice();
+      if (!topics.length) {
+        try {
+          const u = await this.memory.units({ corpus });
+          topics = (u?.units ?? []).filter((x) => x.kind === 'belief' && x.status !== 'archived').map((x) => x.name).filter(Boolean).slice(-4);
+        } catch { /* leave empty */ }
+      }
+      if (rec && topics.length) {
+        const learned = topics.map((b) => b.replace(/_/g, ' ')).join('、');
+        const prose = await this.chatModel(
+          `你是${rec.name}。今夜你又把白日的遭遇想了一遍,新悟出这些心得:${learned}。\n` +
+          `用第一人称写一小段夜记(中文,2-3 句,像旧时人记日记的口吻,质朴有情绪),只写日记正文,不要解释。`,
+          400, 'qwen3-vl'   // a fast non-reasoning model for clean prose — GLM-5-FP8 returns content:null on creative prompts
+        );
+        if (prose) {
+          diary = prose.trim();
+          // store the 夜记 in pal's OWN store — it's a narrative artifact, not a
+          // typed memory unit (aigg-memory's consolidate gates non-evidence units
+          // out, so /memory/remember returns 200 but never persists a journal).
+          try {
+            const prev = (await this.store.get<Array<{ date: string; text: string }>>(W, diaryKey(npcId))) ?? [];
+            prev.push({ date: new Date(now || Date.now()).toISOString(), text: diary });
+            await this.store.set(W, diaryKey(npcId), prev.slice(-30));
+          } catch { /* never blocks the dream */ }
+        }
+      }
+    } catch { /* diary best-effort */ }
+    return { beliefs, verified, ...(diary ? { diary } : {}) };
+  }
+
+  /** Freeform chat against the memoryModel backend (the OpenAI-compatible
+   *  endpoint reflect/plan already use, e.g. the 0G zerog-shim). Returns the
+   *  assistant text, or null on any failure — generative, best-effort. */
+  private async chatModel(prompt: string, maxTokens = 1500, model?: string): Promise<string | null> {
+    const mm = this.memoryModel;
+    if (!mm) return null;
+    try {
+      const res = await fetch(`${mm.aiggUrl.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(mm.aiggKey ? { authorization: `Bearer ${mm.aiggKey}` } : {}) },
+        body: JSON.stringify({ model: model ?? mm.model ?? '', messages: [{ role: 'user', content: prompt }], max_tokens: maxTokens }),
+      });
+      if (!res.ok) return null;
+      const d = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+      return d?.choices?.[0]?.message?.content ?? null;
     } catch { return null; }
+  }
+
+  /**
+   * npcProfile — the NPC's legible 履历: track record (counts of what it has
+   * lived/learned/written) + its 心得 (active beliefs) + its 夜记 (diary). Read
+   * from the typed-memory corpus; the host renders the 人物档案 page from it.
+   */
+  async npcProfile(npcId: string): Promise<{
+    npcId: string; name: string;
+    track: { beliefs: number; journals: number; episodes: number; skill: number };
+    beliefs: string[];
+    diary: Array<{ date?: string; text: string }>;
+  }> {
+    const rec = await this.getNpc(npcId);
+    const name = rec?.name ?? npcId;
+    const empty = { npcId, name, track: { beliefs: 0, journals: 0, episodes: 0, skill: 0 }, beliefs: [], diary: [] };
+    try {
+      // 夜记 from pal's own store; 心得/阅历 (beliefs/episodes) from typed memory.
+      const diary = ((await this.store.get<Array<{ date: string; text: string }>>(W, diaryKey(npcId))) ?? []).slice(-12);
+      let beliefs = 0, episodes = 0;
+      const beliefNames: string[] = [];
+      if (this.memory) {
+        const u = await this.memory.units({ corpus: this.memoryCorpus(npcId) });
+        for (const x of (u?.units ?? [])) {
+          if (x.status === 'archived') continue;
+          if (x.kind === 'belief') { beliefs++; if (x.name) beliefNames.push(x.name); }
+          else if (x.kind === 'episodic') episodes++;
+        }
+      }
+      return {
+        npcId, name,
+        track: { beliefs, journals: diary.length, episodes, skill: Math.round((beliefs * 10 + diary.length * 2) * 10) / 10 },
+        beliefs: beliefNames.slice(0, 12),
+        diary,
+      };
+    } catch { return empty; }
   }
 
   /**
