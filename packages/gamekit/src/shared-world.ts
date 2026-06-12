@@ -28,6 +28,10 @@ import { applyTx, relKey, type WorldState, type WorldEvent, type WorldTx, type M
 import { LlmInferenceOracle, type InferenceOracle } from './stf/inference-oracle';
 import type { SettlementLayer } from './stf/settlement-layer';
 import type { Effect, Attestation } from '@onchainpal/npc-agent';
+import {
+  decayNeeds, satisfy, summarizeNeeds, urgent, DEFAULT_NEEDS_CONFIG,
+  type NeedsState, type NeedsConfig
+} from '@onchainpal/npc-agent';
 
 const W: Scope = { type: 'world' };
 const ONCHAIN = { onchain: true } as const;
@@ -36,6 +40,7 @@ const gccKey = (id: string) => `npc:${id}:gcc`;
 const diaryKey = (id: string) => `npc:${id}:diary`;   // off-chain 夜记 log (narrative, not a typed memory unit)
 const logKey = (id: string) => `npc:${id}:log`;       // off-chain 3rd-person system log (debug: say/move/pitch/dream)
 const riceKey = (id: string) => `npc:${id}:rice`;
+const needsKey = (id: string) => `npc:${id}:needs`;   // off-chain 易变态(同 diary/log,不带 ONCHAIN)
 const RICE_MARKET = 'world:market:rice';
 const RICE_BETS = 'world:market:bets';
 const REGISTRY = 'world:npcs';
@@ -190,6 +195,8 @@ export interface SharedWorldOptions {
    * no card for).
    */
   personaResolver?: (rec: NpcRecord, memoryBundle?: string) => NpcPersona | undefined;
+  /** 需求多轴配置(轴/衰减率/阈值/房间满足表)——host 从 WorldDef.needs 注入;无则 DEFAULT_NEEDS_CONFIG。 */
+  needs?: NeedsConfig;
 }
 
 export class SharedWorld {
@@ -208,6 +215,7 @@ export class SharedWorld {
   private readonly oracle: InferenceOracle;
   private readonly settlementLayer?: SettlementLayer;
   private readonly personaResolver?: (rec: NpcRecord, memoryBundle?: string) => NpcPersona | undefined;
+  private readonly needsCfg: NeedsConfig;
   private readonly onEvents?: (events: WorldEvent[], ctx: { now: number; tx?: WorldTx }) => void;
   /**
    * Draft NPCs — created but never funded. RAM-only by design: no store write,
@@ -241,6 +249,7 @@ export class SharedWorld {
     this.oracle = opts.oracle ?? new LlmInferenceOracle({ provider: this.provider });
     this.settlementLayer = opts.settlementLayer;
     this.personaResolver = opts.personaResolver;
+    this.needsCfg = opts.needs ?? DEFAULT_NEEDS_CONFIG;
     this.onEvents = opts.onEvents;
     this.rooms = opts.rooms ?? ['广场', '酒馆', '集市'];
   }
@@ -317,6 +326,43 @@ export class SharedWorld {
       }, { corpus: await this.memoryCorpus(npcId), evidence: await this.memoryEvidence(npcId) });
       return true;
     } catch { return false; }
+  }
+
+  // --- 需求多轴(spec 里程碑①)----------------------------------------------
+  /** 一拍需求:① dt 衰减(缺轴以 100 起算再衰);② 按 NPC 所在房间满足(cfg.satisfy[room]);
+   *  ③ 写回 store(off-chain 易变,不带 ONCHAIN,同 diary/log)。纯 store + needs 纯函数,
+   *  无 LLM、无链上;fair 心跳每 tick 对每个 NPC 调一次。失败静默。
+   *  末尾轻量:最紧迫轴 fire-and-forget seed 一个 goal(复用 rememberGoal,无 memory 时返 false → 零副作用)。 */
+  async tickNeeds(npcId: string, _now = Date.now(), dt = 1): Promise<NeedsState | null> {
+    try {
+      const rec = await this.getNpc(npcId);
+      if (!rec) return null;
+      const prev = (await this.store.get<NeedsState>(W, needsKey(npcId))) ?? {};
+      let next = decayNeeds(prev, this.needsCfg.axes, dt);     // 缺轴以 100 起算
+      const sat = this.needsCfg.satisfy[rec.room];             // 所在房间满足表
+      if (sat) for (const [axis, amt] of Object.entries(sat)) next = satisfy(next, axis, amt);
+      await this.store.set(W, needsKey(npcId), next);          // ← 不带 ONCHAIN
+      // 最紧迫未满足需求 → seed goal(spec B,轻、失败静默;纯 store 世界无 memory 时无操作)
+      const top = urgent(next, this.needsCfg.axes)[0];
+      if (top && this.memory) {
+        void this.rememberGoal(npcId, `need_${top}`, `你${summarizeNeeds({ [top]: next[top] }, this.needsCfg.axes)}——设法满足这一需求`).catch(() => {});
+      }
+      return next;
+    } catch { return null; }
+  }
+
+  /** 读当前需求(smoke / talk 注入用)。 */
+  async needsOf(npcId: string): Promise<NeedsState> {
+    return (await this.store.get<NeedsState>(W, needsKey(npcId))) ?? {};
+  }
+
+  /** 显式满足一轴(进食/喝茶等「动作」回填):读 needs → satisfy → 写回 store(不带 ONCHAIN)。
+   *  与 tradeRice 成对——消费抽走市场供给的同时回填食轴,否则下一拍仍匮乏、无限买空银两。 */
+  async satisfyNeed(npcId: string, axis: string, amount: number): Promise<NeedsState> {
+    const prev = (await this.store.get<NeedsState>(W, needsKey(npcId))) ?? {};
+    const next = satisfy(prev, axis, amount);
+    await this.store.set(W, needsKey(npcId), next);
+    return next;
   }
 
   /**
@@ -1031,6 +1077,14 @@ export class SharedWorld {
         } catch { break; /* discernment unavailable — proceed without the gate */ }
       }
     }
+
+    // 需求 → prompt:把当前需求摘成一行,与【记忆】/【裁断】同槽(经 personaFor→role 进 oracle)。
+    // 行为仍由 AI 据此推理(spec 非目标:不硬规则驱动)。全足→summarize 返 '' →不注入。
+    try {
+      const needs = await this.needsOf(input.npcId);
+      const line = summarizeNeeds(needs, this.needsCfg.axes);
+      if (line) memoryBundle = `${memoryBundle ? memoryBundle + '\n' : ''}【需求】${line}`;
+    } catch { /* needs 不可用 — 照常对话 */ }
 
     const persona = this.personaFor(rec, memoryBundle);
     const relationships = new RelationshipMemory(this.store);

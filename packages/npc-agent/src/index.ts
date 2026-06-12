@@ -93,6 +93,10 @@ export type { SettlementStrategy, SettlementResult } from './settlement/settleme
 export { Metabolism, hungerIntent, DEFAULT_METABOLISM } from './economy/metabolism';
 export type { MetabolicTier, MetabolismConfig, MetabolicDecision } from './economy/metabolism';
 
+// 需求多轴 — per-NPC 0..100 标量,衰减/房间满足/进 prompt(metabolism 同构:灵力=能不能想,需求=想什么)
+export { decayNeeds, satisfy, urgent, summarizeNeeds, DEFAULT_NEEDS_CONFIG } from './economy/needs';
+export type { NeedsState, NeedsAxis, NeedsConfig } from './economy/needs';
+
 // Agent brain + runtime
 export type { Agent } from './agent/agent';
 export { LlmAgent } from './agent/llm-agent';
