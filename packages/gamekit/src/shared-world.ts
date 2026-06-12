@@ -123,6 +123,9 @@ export interface SharedWorldOptions {
   memoryNamespace?: string;
   /** θ for the per-turn discernment gate (relevant belief AND confidence ≥ θ). Default 0.5. */
   discernmentTheta?: number;
+  /** 好感门槛:非 sudo/owner 的访客要「说动」NPC 移动(goto)所需的 affinity。
+   *  Ford 原则——游客没有直接命令权,只有记忆与好感两条影响通道。Default 30. */
+  commandAffinity?: number;
   /**
    * Activation seam — invoked on a draft NPC's first GCC top-up to decide
    * whether it becomes a permanent, persisted entity. Defaults to
@@ -197,6 +200,7 @@ export class SharedWorld {
   private readonly memoryModel?: { aiggUrl: string; aiggKey?: string; model?: string; backend?: string; timeout?: number };
   private readonly memoryNs: string = '';
   private readonly discernmentTheta: number;
+  private readonly commandAffinity: number;
   private readonly activator: Activator;
   private readonly minActivationGcc: number;
   private readonly settlement?: SettlementStrategy;
@@ -228,6 +232,7 @@ export class SharedWorld {
     this.memoryModel = opts.memoryModel;
     this.memoryNs = opts.memoryNamespace ? `${opts.memoryNamespace.replace(/\/+$/, '')}/` : '';
     this.discernmentTheta = opts.discernmentTheta ?? 0.5;
+    this.commandAffinity = opts.commandAffinity ?? 30;
     this.activator = opts.activator ?? new LocalLedgerActivator();
     this.minActivationGcc = opts.minActivationGcc ?? 0.001;
     this.settlement = opts.settlement;
@@ -985,7 +990,7 @@ export class SharedWorld {
   }
 
   /** A visitor talks to a stationed NPC. The NPC thinks on its funded GCC. */
-  async talk(input: { npcId: string; visitorId: string; text: string; outcome?: 'loss' | 'gain' | 'neutral' }): Promise<TalkResult> {
+  async talk(input: { npcId: string; visitorId: string; text: string; outcome?: 'loss' | 'gain' | 'neutral'; sudo?: boolean }): Promise<TalkResult> {
     const rec = await this.getNpc(input.npcId);
     if (!rec) throw new Error(`no npc ${input.npcId}`);
 
@@ -1083,12 +1088,22 @@ export class SharedWorld {
 
     if (oracleOut.say) void this.logEvent(input.npcId, 'say', `对 ${interlocutor.name} 说:「${oracleOut.say.slice(0, 40)}」`);
 
-    // movement intent (goto 算子): the NPC means to go somewhere — queue it for
-    // its PlanExecutor (drained next tick), don't teleport. Player「去客栈」lands here.
+    // movement intent (goto 算子) — narrative-control gate (Ford 原则,
+    // docs/specs/narrative-control.md):「叙事即权力,权力必须有闸」。
+    // Direct command belongs to SUDO (world operator) and the NPC's OWNER (its
+    // 编剧). Everyone else can only PERSUADE — the LLM may emit goto, but the
+    // NPC obeys only past the affinity threshold: guests influence through
+    // memory and 好感, never by fiat.
+    const mayCommand = input.sudo === true || input.visitorId === rec.owner;
+    const persuaded = rel.affinity >= this.commandAffinity;
     for (const e of oracleOut.effects) {
-      if (e.kind === 'goto' && e.place?.trim()) {
-        this.pushGoto(input.npcId, e.place.trim());
-        void this.logEvent(input.npcId, 'move', `打算动身去「${e.place.trim()}」`);
+      if (e.kind !== 'goto' || !e.place?.trim()) continue;
+      const place = e.place.trim();
+      if (mayCommand || persuaded) {
+        this.pushGoto(input.npcId, place);
+        void this.logEvent(input.npcId, 'move', `打算动身去「${place}」${mayCommand ? '' : `(被${interlocutor.name}说动)`}`);
+      } else {
+        void this.logEvent(input.npcId, 'move', `${interlocutor.name} 劝它去「${place}」——交情未到,嘴上应了,脚下没动`);
       }
     }
 

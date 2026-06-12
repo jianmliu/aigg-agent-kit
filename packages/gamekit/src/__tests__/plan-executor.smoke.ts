@@ -112,17 +112,31 @@ async function main() {
     assert.deepEqual({ kind: a.kind, to: (a as any).to }, { kind: 'move', to: '药铺' }, 'memory-fed queue drives the walk');
     console.log('  ✓ planSteps: kind=plan units feed the queue; stale = the deterministic re-plan trigger');
 
-    // 5. goto 算子: a talk that emits goto → inbox → executor walks there, preempting
+    // 5. goto 算子 + 叙事权限闸(Ford 原则): direct command = sudo/owner only;
+    //    strangers can only persuade past the affinity threshold.
     const world3 = new SharedWorld({ store: new InMemoryStore(), provider: new GotoProvider(), metabolism: rich, rooms: Object.keys(GRAPH) });
     const lan = await world3.createNpc({ name: '香兰', owner: 'host:pal', background: '丁家长女', room: '集市', startGcc: 2 });
     const ex3 = new PlanExecutor(world3, { npcId: lan, roomGraph: GRAPH, roomAliases: ALIASES });
 
     // idle until told
     assert.equal((await ex3.runTick()).kind, 'idle', 'no plan, no directive → idle');
-    // the player tells her「去药铺」— talk emits the goto effect → pushGoto
-    await world3.talk({ npcId: lan, visitorId: 'player:你', text: '去药铺' });
-    assert.deepEqual(world3.takeGoto(lan), ['药铺'], 'talk routed the goto effect into the inbox');
-    // (re-arm it since takeGoto above drained it for the assertion)
+    // a STRANGER (not owner, affinity 0 < 30) says「去药铺」→ LLM emits goto, but the gate refuses
+    await world3.talk({ npcId: lan, visitorId: 'player:路人', text: '去药铺' });
+    assert.deepEqual(world3.takeGoto(lan), [], 'stranger cannot command — goto refused (memory/好感 are the only channels)');
+    // the OWNER commands → honored
+    await world3.talk({ npcId: lan, visitorId: 'host:pal', text: '去药铺' });
+    assert.deepEqual(world3.takeGoto(lan), ['药铺'], 'owner commands its own agent');
+    // SUDO commands → honored regardless of owner
+    await world3.talk({ npcId: lan, visitorId: 'player:司命', text: '去药铺', sudo: true });
+    assert.deepEqual(world3.takeGoto(lan), ['药铺'], 'sudo (Ford) commands anyone');
+    // a stranger past the affinity threshold PERSUADES (knob lowered to 0 to test the branch)
+    const world3b = new SharedWorld({ store: new InMemoryStore(), provider: new GotoProvider(), metabolism: rich, rooms: Object.keys(GRAPH), commandAffinity: 0 });
+    const lanB = await world3b.createNpc({ name: '香兰', owner: 'host:pal', background: '丁家长女', room: '集市', startGcc: 2 });
+    await world3b.talk({ npcId: lanB, visitorId: 'player:路人', text: '去药铺' });
+    assert.deepEqual(world3b.takeGoto(lanB), ['药铺'], 'affinity ≥ threshold → persuaded (说动,不是命令)');
+    console.log('  ✓ 叙事权限闸: stranger refused · owner/sudo command · affinity persuades');
+
+    // executor walk (owner-issued directive)
     world3.pushGoto(lan, '药铺');
     a = await ex3.runTick();
     assert.deepEqual({ kind: a.kind, to: (a as any).to }, { kind: 'move', to: '镇内' }, 'goto walks one hop toward 药铺');
