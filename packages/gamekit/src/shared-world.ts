@@ -212,6 +212,8 @@ export interface SharedWorldOptions {
    * ①层(GCC/tokenId/card/npc record)永不上前缀,随魂走、留全局命名空间。
    */
   worldId?: string;
+  /** 世界默认回话语言('zh' 默认 | 'en')→ 注入 NPC 的 say 输出语言;玩家可经 talk(lang) 覆盖。 */
+  language?: 'zh' | 'en';
   /**
    * 旁听(overhearing)—— 同房间其他 NPC 能听见一段说出口的对话并形成 episodic 记忆,
    * 富裕(rich tier)NPC 经 metabolism 门控可低概率插话,穷/饥饿 NPC 只记不说。
@@ -247,6 +249,7 @@ export class SharedWorld {
   private readonly exchangeCfg: { enabled: boolean; rate: number; dailyCapSilver: number };
   /** ②层 key 的世界前缀(= WorldDef.id);默认 'pal'(旧裸 key 兼容 + 惰性迁移触发)。 */
   private readonly worldId: string;
+  private readonly language?: 'zh' | 'en';
   /** 旁听配置 —— 全字段已落默认(见构造函数)。成本封顶双闸:maxListeners≤4 / interjectMaxPerTalk≤1。 */
   private readonly overhearCfg: { enabled: boolean; maxListeners: number; interject: boolean; interjectMaxPerTalk: number };
   private readonly onEvents?: (events: WorldEvent[], ctx: { now: number; tx?: WorldTx }) => void;
@@ -286,6 +289,7 @@ export class SharedWorld {
     // 兑换桥默认保守(关闭、rate=100、每日上限 50);WorldDef.economy.exchange 显式开启。
     this.exchangeCfg = opts.exchange ?? { enabled: false, rate: 100, dailyCapSilver: 50 };
     this.worldId = opts.worldId ?? 'pal';
+    this.language = opts.language;     // 世界默认回话语言(undefined → llm-agent 走中文默认)
     // 旁听默认安全值(对标 spec §3):记忆扩散默认开(零成本),听众/插话双封顶。
     // 即便 host 不配置,默认也自洽安全——富者至多 1 次插话、穷/饥饿者只记不说。
     this.overhearCfg = {
@@ -439,7 +443,10 @@ export class SharedWorld {
       // 最紧迫未满足需求 → seed goal(spec B,轻、失败静默;纯 store 世界无 memory 时无操作)
       const top = urgent(next, this.needsCfg.axes)[0];
       if (top && this.memory) {
-        void this.rememberGoal(npcId, `need_${top}`, `你${summarizeNeeds({ [top]: next[top] }, this.needsCfg.axes)}——设法满足这一需求`).catch(() => {});
+        const lang = this.language ?? 'zh';
+        const lack = summarizeNeeds({ [top]: next[top] }, this.needsCfg.axes, 30, lang);
+        const goalText = lang === 'en' ? `You are ${lack} — see to it` : `你${lack}——设法满足这一需求`;
+        void this.rememberGoal(npcId, `need_${top}`, goalText).catch(() => {});
       }
       return next;
     } catch { return null; }
@@ -1207,7 +1214,7 @@ export class SharedWorld {
   /** A visitor talks to a stationed NPC. The NPC thinks on its funded GCC. */
   // _noOverhear: 内部递归防护(下划线 = 内部标志,不进 WorldDef/协议层)。overhear() 复用
   // talk() 让 rich 听众插话时传 true,使插话产生的 say 不再触发下一层旁听 → 递归深度恒为 1。
-  async talk(input: { npcId: string; visitorId: string; text: string; outcome?: 'loss' | 'gain' | 'neutral'; sudo?: boolean; _noOverhear?: boolean }): Promise<TalkResult> {
+  async talk(input: { npcId: string; visitorId: string; text: string; outcome?: 'loss' | 'gain' | 'neutral'; sudo?: boolean; lang?: 'zh' | 'en'; _noOverhear?: boolean }): Promise<TalkResult> {
     const rec = await this.getNpc(input.npcId);
     if (!rec) throw new Error(`no npc ${input.npcId}`);
 
@@ -1252,12 +1259,14 @@ export class SharedWorld {
     // 需求 → prompt:把当前需求摘成一行,与【记忆】/【裁断】同槽(经 personaFor→role 进 oracle)。
     // 行为仍由 AI 据此推理(spec 非目标:不硬规则驱动)。全足→summarize 返 '' →不注入。
     try {
+      const lang = input.lang ?? this.language;     // 玩家覆盖 ?? 世界默认(与 say 同步)
       const needs = await this.needsOf(input.npcId);
-      const line = summarizeNeeds(needs, this.needsCfg.axes);
-      if (line) memoryBundle = `${memoryBundle ? memoryBundle + '\n' : ''}【需求】${line}`;
+      const line = summarizeNeeds(needs, this.needsCfg.axes, 30, lang);
+      if (line) memoryBundle = `${memoryBundle ? memoryBundle + '\n' : ''}${lang === 'en' ? '[Needs] ' : '【需求】'}${line}`;
     } catch { /* needs 不可用 — 照常对话 */ }
 
     const persona = this.personaFor(rec, memoryBundle);
+    persona.language = input.lang ?? this.language;   // 玩家覆盖 ?? 世界默认 → 注入 NPC 回话语言(undefined→中文)
     const relationships = new RelationshipMemory(this.store, this.relPrefix());
     const balance0 = await this.balanceGcc(input.npcId);
     const beforeRel = await relationships.get(input.npcId, input.visitorId);

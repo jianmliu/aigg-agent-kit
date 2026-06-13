@@ -85,9 +85,12 @@ export class LlmAgent implements Agent {
     const addressing = npcSpeaker ? perception.interlocutor!.name : resolveAddressing(this.persona, rel.affinity);
     const prompt = this.buildPrompt(perception, addressing, rel.affinity, rel.tags);
 
+    const system = this.persona.language === 'en'
+      ? 'You are a game NPC. Output STRICTLY one JSON object, no explanation or extra text. Your `say` line MUST be in English.'
+      : '你是一个游戏 NPC。严格只输出一个 JSON 对象，不要任何解释或多余文字。';
     const result = await provider.complete({
       prompt,
-      system: '你是一个游戏 NPC。严格只输出一个 JSON 对象，不要任何解释或多余文字。',
+      system,
       temperature: this.temperature
     });
     if (result.usage && this.onUsage) this.onUsage(result.usage, perception);
@@ -120,14 +123,26 @@ export class LlmAgent implements Agent {
     lines.push('');
     lines.push(`${addressing}对你说：「${perception.text ?? ''}」`);
     lines.push('');
-    lines.push('请只输出一个 JSON 对象，字段：');
-    lines.push(`- say: 你的一句中文对白（符合你的身份，是对${addressing}说的话，不要把对方错认成别人）`);
-    lines.push('- effects: 数组，可选。允许的项：');
-    lines.push('  {"kind":"adjustRelationship","delta":整数(-20~20),"reason":"原因"}');
-    lines.push('  {"kind":"setFlag","flag":"字符串","value":数字}');
-    lines.push('  {"kind":"goto","place":"地名或人名"} —— 当对方请你去某处、或你决意动身前往某地/找某人时输出(如「客栈」「集市」「张四」);你只是起意，真正走过去要花时间');
-    lines.push('- emotion: 你此刻的情绪（可选）');
-    lines.push('示例：{"say":"哈哈，又见面了！","effects":[{"kind":"adjustRelationship","delta":5,"reason":"玩家请喝酒"}],"emotion":"高兴"}');
+    // 输出语言只管 say 字段;effects/原因等结构标签语言不影响解析。'en' 世界/玩家 → 英文对白。
+    if (p.language === 'en') {
+      lines.push('Output STRICTLY one JSON object with fields:');
+      lines.push(`- say: your in-character line spoken to ${addressing} — REPLY IN ENGLISH; don't mistake who you're addressing`);
+      lines.push('- effects: array, optional. allowed items:');
+      lines.push('  {"kind":"adjustRelationship","delta":int(-20~20),"reason":"..."}');
+      lines.push('  {"kind":"setFlag","flag":"string","value":number}');
+      lines.push('  {"kind":"goto","place":"a place or person"} — emit when asked to go somewhere or you decide to head to a place/person (e.g. "Town Hall","Central Plaza","Flora"); you only form the intent, travel takes time');
+      lines.push('- emotion: how you feel right now (optional)');
+      lines.push('Example: {"say":"Good to see you again.","effects":[{"kind":"adjustRelationship","delta":5,"reason":"bought me a drink"}],"emotion":"glad"}');
+    } else {
+      lines.push('请只输出一个 JSON 对象，字段：');
+      lines.push(`- say: 你的一句中文对白（符合你的身份，是对${addressing}说的话，不要把对方错认成别人）`);
+      lines.push('- effects: 数组，可选。允许的项：');
+      lines.push('  {"kind":"adjustRelationship","delta":整数(-20~20),"reason":"原因"}');
+      lines.push('  {"kind":"setFlag","flag":"字符串","value":数字}');
+      lines.push('  {"kind":"goto","place":"地名或人名"} —— 当对方请你去某处、或你决意动身前往某地/找某人时输出(如「客栈」「集市」「张四」);你只是起意，真正走过去要花时间');
+      lines.push('- emotion: 你此刻的情绪（可选）');
+      lines.push('示例：{"say":"哈哈，又见面了！","effects":[{"kind":"adjustRelationship","delta":5,"reason":"玩家请喝酒"}],"emotion":"高兴"}');
+    }
     return lines.join('\n');
   }
 }

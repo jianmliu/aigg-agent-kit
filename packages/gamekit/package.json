@@ -25,7 +25,8 @@
     "test:tick": "tsx src/__tests__/shared-world-tick.smoke.ts",
     "test:needs": "tsx src/__tests__/needs-world.smoke.ts",
     "test:economy-split": "tsx src/__tests__/economy-split.smoke.ts",
-    "test:overhear": "tsx src/__tests__/shared-world-overhear.smoke.ts"
+    "test:overhear": "tsx src/__tests__/shared-world-overhear.smoke.ts",
+    "test:language": "tsx src/__tests__/language.smoke.ts"
   },
   "dependencies": {
     "@onchainpal/npc-agent": "workspace:*",

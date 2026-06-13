@@ -18,6 +18,9 @@ export interface NpcPersona {
   boundaries?: string[];
   /** speech register, e.g. 文白夹杂 / 市井白话. */
   register?: string;
+  /** reply language for the NPC's spoken line — 'zh'(默认)| 'en'. WorldDef.language
+   *  默认或玩家覆盖;只管 `say` 输出语言,不改人设/房间文案。 */
+  language?: 'zh' | 'en';
   /** forbidden phrasings/topics (from the card's taboos). */
   taboos?: string[];
   /** what the NPC knows / is allowed to talk about. */

@@ -71,6 +71,8 @@ export class FairTick {
       shocks?: FairShock[];
       /** when set, traders/shocks must be IN this room (the granary's) */
       marketRoom?: string;
+      /** gossip belief language ('zh' default | 'en') — matches the world's reply language. */
+      language?: 'zh' | 'en';
     } = {}
   ) {}
 
@@ -131,9 +133,13 @@ export class FairTick {
           if (rooms.get(listener.npcId) !== here) continue;
           const key = `${g.npcId}|${hit.from}|${listener.npcId}`;
           if (this.warned.has(key)) continue;
+          const victimName = victimRec?.name ?? hit.to;
+          const text = this.opts.language === 'en'
+            ? `Hear this? ${victimName} believed ${hit.from} and handed over ${-hit.deltaGcc} silver — and got cleaned out (swindled)`
+            : `听说了吗？${victimName} 信了 ${hit.from} 的话，交了 ${-hit.deltaGcc} 两银子，结果被卷走了(被坑)`;
           const ok = await this.world.gossip({
             fromNpcId: g.npcId, toNpcId: listener.npcId, about: hit.from,
-            text: `听说了吗？${victimRec?.name ?? hit.to} 信了 ${hit.from} 的话，交了 ${-hit.deltaGcc} 两银子，结果被卷走了(被坑)`,
+            text,
             now: now + tick
           });
           if (ok) {
