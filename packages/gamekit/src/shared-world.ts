@@ -212,6 +212,18 @@ export interface SharedWorldOptions {
    * ①层(GCC/tokenId/card/npc record)永不上前缀,随魂走、留全局命名空间。
    */
   worldId?: string;
+  /**
+   * 旁听(overhearing)—— 同房间其他 NPC 能听见一段说出口的对话并形成 episodic 记忆,
+   * 富裕(rich tier)NPC 经 metabolism 门控可低概率插话,穷/饥饿 NPC 只记不说。
+   * 目标:涌现性声誉/八卦传播(郎中当面行骗 → 旁听者亲历级警惕信念)。
+   * 设计依据 docs/specs/emergence-world-notes.md §3(对标 Emergence HEARING_DISTANCE=25,≤4 旁听者)。
+   * 全可选、确定性(无概率字段——确定性铁律禁随机源)。未注入 → kit 默认安全值:
+   *   enabled=true(记忆扩散默认开,remember 零成本)
+   *   maxListeners=4(成本封顶:即便满房富 NPC,旁听处理 ≤4 个 → remember ≤4 次)
+   *   interject=true 但受 rich 门控 + interjectMaxPerTalk=1 双重封顶(默认富者至多 1 次插话)
+   *   interjectMaxPerTalk=1(每次 talk 至多 1 次插话 → 至多 1 次额外推理/GCC 烧)
+   */
+  overhear?: { enabled?: boolean; maxListeners?: number; interject?: boolean; interjectMaxPerTalk?: number };
 }
 
 export class SharedWorld {
@@ -235,6 +247,8 @@ export class SharedWorld {
   private readonly exchangeCfg: { enabled: boolean; rate: number; dailyCapSilver: number };
   /** ②层 key 的世界前缀(= WorldDef.id);默认 'pal'(旧裸 key 兼容 + 惰性迁移触发)。 */
   private readonly worldId: string;
+  /** 旁听配置 —— 全字段已落默认(见构造函数)。成本封顶双闸:maxListeners≤4 / interjectMaxPerTalk≤1。 */
+  private readonly overhearCfg: { enabled: boolean; maxListeners: number; interject: boolean; interjectMaxPerTalk: number };
   private readonly onEvents?: (events: WorldEvent[], ctx: { now: number; tx?: WorldTx }) => void;
   /**
    * Draft NPCs — created but never funded. RAM-only by design: no store write,
@@ -272,6 +286,14 @@ export class SharedWorld {
     // 兑换桥默认保守(关闭、rate=100、每日上限 50);WorldDef.economy.exchange 显式开启。
     this.exchangeCfg = opts.exchange ?? { enabled: false, rate: 100, dailyCapSilver: 50 };
     this.worldId = opts.worldId ?? 'pal';
+    // 旁听默认安全值(对标 spec §3):记忆扩散默认开(零成本),听众/插话双封顶。
+    // 即便 host 不配置,默认也自洽安全——富者至多 1 次插话、穷/饥饿者只记不说。
+    this.overhearCfg = {
+      enabled: opts.overhear?.enabled ?? true,
+      maxListeners: opts.overhear?.maxListeners ?? 4,
+      interject: opts.overhear?.interject ?? true,
+      interjectMaxPerTalk: opts.overhear?.interjectMaxPerTalk ?? 1,
+    };
     this.onEvents = opts.onEvents;
     this.rooms = opts.rooms ?? ['广场', '酒馆', '集市'];
   }
@@ -1183,7 +1205,9 @@ export class SharedWorld {
   }
 
   /** A visitor talks to a stationed NPC. The NPC thinks on its funded GCC. */
-  async talk(input: { npcId: string; visitorId: string; text: string; outcome?: 'loss' | 'gain' | 'neutral'; sudo?: boolean }): Promise<TalkResult> {
+  // _noOverhear: 内部递归防护(下划线 = 内部标志,不进 WorldDef/协议层)。overhear() 复用
+  // talk() 让 rich 听众插话时传 true,使插话产生的 say 不再触发下一层旁听 → 递归深度恒为 1。
+  async talk(input: { npcId: string; visitorId: string; text: string; outcome?: 'loss' | 'gain' | 'neutral'; sudo?: boolean; _noOverhear?: boolean }): Promise<TalkResult> {
     const rec = await this.getNpc(input.npcId);
     if (!rec) throw new Error(`no npc ${input.npcId}`);
 
@@ -1365,6 +1389,101 @@ export class SharedWorld {
       if (richTier && this.memoryModel) this.dream(input.npcId, now).catch(() => {});
     }
 
+    // --- 旁听(overhearing): 同房间其他 NPC 听见这句说出口的话 → 亲历级 episodic + (rich)插话 ---
+    // 触发门控:旁听开 + 这一回合有说出口的 say(没说出口的话没人能听见)+ 非插话回合
+    // (_noOverhear 防递归——插话本身复用 talk() 产生的 say 不再引爆下一层)。
+    // 教训C:整段 fire-and-forget + .catch —— talk() 的返回值/时延绝不受旁听影响。
+    if (this.overhearCfg.enabled && oracleOut.say && !input._noOverhear) {
+      void this.overhear({
+        speakerId: input.npcId, speakerName: rec.name, room: rec.room,
+        interlocutorId: input.visitorId, interlocutorName: interlocutor.name,
+        said: oracleOut.say, outcome: input.outcome, now,
+      }).catch(() => { /* 教训C:任何旁听错误绝不影响 talk 返回 */ });
+    }
+
     return result;
+  }
+
+  /**
+   * 旁听 —— 在【说话者 say 已 emit 之后】fire-and-forget 触发(绝不进 talk 主路径)。五步:
+   *   1. 选听众:npcsInRoom(room) 排除说话者与对话者(若是 NPC)→ 按 id 稳定排序 → slice(maxListeners)。
+   *   2. per-overhearer metabolism 门控(读各自新鲜余额,纯函数 decide,无随机):
+   *        starving → 整段跳过(连 remember 都不写,与说话者自己 remember 的 !starving 门一致);
+   *        非饥饿(lean/rich)→ 写亲历级 episodic remember 进【该听众自己】的 corpus(零成本);
+   *        rich → 之上【有资格】插话。
+   *   3. remember:corpus/evidence 必须传【听众 o.id】,绝不写说话者(防裸键/自证泄漏)。
+   *   4. 插话:rich 听众子集按 id 稳定排序取前 interjectMaxPerTalk 个授权,复用 talk(_noOverhear:true)
+   *        走完整 STF/applyTalk → 烧 GCC + emit say/burned/affinityChanged + 持久化余额(账本一致、tick 可锚定)。
+   *   5. 系统日志:复用既有 'gossip' kind 记一条第三人称旁听日志。
+   * 成本封顶B:maxListeners≤4 截断旁听者(remember ≤4 次);interjectMaxPerTalk≤1 截断插话
+   *            ——一句话最多引爆 1 次额外推理。递归防护:插话带 _noOverhear=true,旁听深度恒为 1。
+   * 确定性铁律E:听众选取/rich 子集/被授权插话集全部在 Promise.all 之前一次性按已排序 id 算好,
+   *            并发 map 内仅按「我的 id 是否在该集合」判定 → 无随机源、无竞态、可重放。
+   */
+  private async overhear(input: {
+    speakerId: string; speakerName: string; room: string;
+    interlocutorId: string; interlocutorName: string;
+    said: string; outcome?: 'loss' | 'gain' | 'neutral'; now: number;
+  }): Promise<void> {
+    if (!this.memory) return;
+
+    // 步骤1:同房间听众 → 排除说话者与对话者(对话者是玩家时其 id 不在 registry,filter 自然不命中)
+    // → 按 id 字典序稳定排序(确定性,无随机)→ slice(maxListeners)(成本封顶B 第一闸)。
+    const listeners = (await this.npcsInRoom(input.room))
+      .filter((n) => n.id !== input.speakerId && n.id !== input.interlocutorId)
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .slice(0, this.overhearCfg.maxListeners);
+    if (listeners.length === 0) return;
+
+    // 步骤2(预算):per-overhearer 门控,一次性算好「非饥饿听众」与「rich 听众」(确定性,纯函数)。
+    // 在 Promise.all 之前定下被授权插话集,避免并发竞态破坏确定性(教训E)。
+    const gated = await Promise.all(listeners.map(async (o) => {
+      const bal = await this.balanceGcc(o.id);
+      const d = this.metabolism.decide(bal);
+      const rich = !d.starving && (d.tier.label === '充盈' || d.tier.id === 'r'); // 与主路径 richTier 同判据
+      return { o, starving: d.starving, rich };
+    }));
+    // 被授权插话集:rich 子集(已随 listeners 按 id 稳定排序)取前 interjectMaxPerTalk 个 id。
+    // 成本封顶B 第二闸:即便多个 rich 听众,也只 ≤interjectMaxPerTalk 个真正插话。
+    const interjectIds = new Set<string>(
+      this.overhearCfg.interject
+        ? gated.filter((g) => g.rich).map((g) => g.o.id).slice(0, this.overhearCfg.interjectMaxPerTalk)
+        : [] // interject===false → 全员只 remember 不插话(更保守开关)
+    );
+
+    // 步骤3-5:并发处理(避免串行 await 拖慢后台);插话授权用预算好的 interjectIds 判定。
+    await Promise.all(gated.map(async ({ o, starving, rich }) => {
+      if (starving) return; // 饥饿者整段跳过:不 remember、不插话、不记日志
+
+      // 步骤3:亲历级 episodic remember 进【听众自己】的 corpus(零成本、离账本、fire-and-forget)。
+      // outcome:'loss' → match 含 'trap' → discernment 的 provenance 扫描命中 → 亲历级警惕信念。
+      const safe = (s: string) => s.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_');
+      const corpus = await this.memoryCorpus(o.id);   // 听众 o.id,绝不是说话者(防裸键泄漏)
+      const evidence = await this.memoryEvidence(o.id);
+      await this.memory!.remember({
+        slug: safe(`overheard_${input.speakerId}_${input.now}`),
+        name: `旁听 ${input.speakerName}`,
+        kind: 'episodic',
+        description: `${input.speakerName} 对 ${input.interlocutorName} 说：「${input.said}」（${o.name} 在旁亲耳听到）`,
+        match: [input.speakerId, input.speakerName, input.interlocutorName, 'overheard', '旁听',
+          ...(input.outcome === 'loss' ? ['trap'] : [])],
+        // 旁观所得 → 仍记说话者为来源,但这是【亲历】(o 亲耳听到),非二手街谈:不设 asserted_by≠self,
+        // 让 discernment 的 faculty 轴(asserted_by:'self')命中 → 亲历级警惕,不依赖二手 gossip。
+        ...(input.outcome ? { outcome: input.outcome } : {}),
+      }, { corpus, evidence }).catch(() => { /* 离账本、fire-and-forget,绝不抛 */ });
+
+      // 步骤5:系统日志(复用既有 'gossip' kind,无需扩联合,fire-and-forget)。
+      void this.logEvent(o.id, 'gossip', `旁听 ${input.speakerName} 对 ${input.interlocutorName} 的话,记下`);
+
+      // 步骤4:插话 —— 仅被授权的 rich 听众(确定性首个 rich + ≤interjectMaxPerTalk)。
+      // 复用 talk(_noOverhear:true) 走完整账本:烧 GCC + emit say/burned + 持久化余额 → tick 可锚定。
+      // _noOverhear 封死递归:插话的 say 不再触发对其它听众的二次旁听(教训B 核心)。
+      if (rich && interjectIds.has(o.id)) {
+        await this.talk({
+          npcId: o.id, visitorId: input.speakerId,
+          text: `〔旁听插话〕${input.said}`, sudo: false, _noOverhear: true,
+        }).catch(() => { /* 插话失败绝不影响其它听众的 remember */ });
+      }
+    }));
   }
 }
