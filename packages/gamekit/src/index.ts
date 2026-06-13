@@ -24,6 +24,12 @@ export { TickCommitter, ViemTickAnchor, tickEventsHash, verifyTickBlob } from '.
 export type { TickBlob, TickAnchor, TickCommitResult, ViemTickAnchorOptions } from './stf/tick-committer';
 export { LlmInferenceOracle } from './stf/inference-oracle';
 export type { InferenceOracle, OracleInput, OracleOutput, LlmInferenceOracleOptions } from './stf/inference-oracle';
+// Agent action loop (spec docs/specs/agent-action-loop.md §4 P1) — ActionRegistry +
+// the 5 收编 builtins + the action-choice oracle (the impure, signable turn input).
+export { ActionRegistry, builtinActions } from './actions';
+export type { WorldAction, ActionContext, ActionResolveOut, ActionSchema, ChosenAction } from './actions';
+export { LlmActionOracle, ScriptedActionOracle } from './stf/action-oracle';
+export type { ActionOracle, ActionOracleInput, ActionOracleOutput, LlmActionOracleOptions } from './stf/action-oracle';
 export { PlanningOracle } from './stf/planning-oracle';
 export type { PlanningOracleOptions } from './stf/planning-oracle';
 export { ReflectionOracle } from './stf/reflection-oracle';

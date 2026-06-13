@@ -64,8 +64,8 @@ export type { NpcPersona, AddressingRule } from './persona/persona';
 export { resolveAddressing } from './persona/persona';
 
 // Intent parsing (untrusted LLM output → AgentIntent)
-export { parseAgentIntent } from './intent/parse';
-export type { ParseResult } from './intent/parse';
+export { parseAgentIntent, parseActionChoice } from './intent/parse';
+export type { ParseResult, ActionChoice } from './intent/parse';
 
 // Resolver + default rules
 export { EffectResolver } from './resolver/effect-resolver';

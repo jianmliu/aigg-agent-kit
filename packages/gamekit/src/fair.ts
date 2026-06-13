@@ -73,6 +73,13 @@ export class FairTick {
       marketRoom?: string;
       /** gossip belief language ('zh' default | 'en') — matches the world's reply language. */
       language?: 'zh' | 'en';
+      /**
+       * action-loop skip (spec costCap / 教训 B): NPCs driven by the agent action
+       * loop this tick are excluded from the hardcoded FairTick roles, so the same
+       * NPC is never BOTH passively pitched/traded AND actively choosing — no cost
+       * doubling. Read live each tick (the host rebuilds the set per tick).
+       */
+      skip?: (npcId: string) => boolean;
     } = {}
   ) {}
 
@@ -82,9 +89,12 @@ export class FairTick {
   }
 
   async runTick(tick: number, now = 0): Promise<FairTickResult> {
-    const pitchers = this.actors.filter((a) => a.role === 'pitcher');
-    const gossips = this.actors.filter((a) => a.role === 'gossip');
-    const marks = this.actors.filter((a) => a.role !== 'pitcher');
+    // action-loop skip: a NPC chosen by the agent action loop this tick is NOT
+    // also run as a hardcoded role here (no double-driving / cost doubling, 教训 B).
+    const skip = this.opts.skip ?? (() => false);
+    const pitchers = this.actors.filter((a) => a.role === 'pitcher' && !skip(a.npcId));
+    const gossips = this.actors.filter((a) => a.role === 'gossip' && !skip(a.npcId));
+    const marks = this.actors.filter((a) => a.role !== 'pitcher' && !skip(a.npcId));
 
     // movement first (the schedule layer): patrol actors step to this tick's stop
     const moves: FairMoveEvent[] = [];
@@ -160,7 +170,7 @@ export class FairTick {
       const r = await this.world.tradeRice({ npcId: shock.npcId, side: shock.side, amount: shock.amount });
       if (r.ok) trades.push({ tick, npcId: shock.npcId, side: shock.side, amountIn: shock.amount, out: r.out, price: r.price!, shock: shock.label ?? 'shock' });
     }
-    for (const tr of this.actors.filter((a) => a.role === 'trader')) {
+    for (const tr of this.actors.filter((a) => a.role === 'trader' && !skip(a.npcId))) {
       if (!atMarket(tr.npcId)) continue;
       const price = await this.world.ricePrice();
       if (price == null) continue;
