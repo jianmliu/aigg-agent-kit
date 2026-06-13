@@ -1276,7 +1276,8 @@ export class SharedWorld {
     // hunger fallback, exactly as the in-place LlmAgent did via onMetabolism.
     const decision = this.metabolism.decide(balance0);
     const starving = decision.starving;
-    const tier = decision.starving ? '🥵饥饿' : (decision.tier.label ?? decision.tier.id);
+    const talkLang = input.lang ?? this.language;     // 玩家覆盖 ?? 世界默认 → 状态/台词语言
+    const tier = decision.starving ? (talkLang === 'en' ? '🥵 Starving' : '🥵饥饿') : (decision.tier.label ?? decision.tier.id);
     const richTier = !decision.starving && (decision.tier.label === '充盈' || decision.tier.id === 'r');
 
     // who's actually speaking — a fellow NPC (钱塘大集) or the player. The oracle
@@ -1289,7 +1290,7 @@ export class SharedWorld {
     // AI (impure oracle) — quarantined. Starving → scripted line, NO LLM, NO cost.
     const oracleOut = decision.canThink
       ? await this.oracle.produce({ npcId: input.npcId, playerId: input.visitorId, interlocutor, text: input.text, persona, balanceGcc: balance0, rel: beforeRel })
-      : { say: `（${rec.name} 灵力枯竭，无法回应……需要有人为 TA 充值 GCC）`, effects: [] as Effect[], gccCost: 0, usage: undefined, attestation: undefined };
+      : { say: talkLang === 'en' ? `(${rec.name} is out of GCC and cannot respond… someone needs to fund TA's GCC)` : `（${rec.name} 灵力枯竭，无法回应……需要有人为 TA 充值 GCC）`, effects: [] as Effect[], gccCost: 0, usage: undefined, attestation: undefined };
     const cost = oracleOut.gccCost;
 
     // EXECUTION (pure STF) — validate + apply effects + burn on a minimal state
