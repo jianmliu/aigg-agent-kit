@@ -110,8 +110,11 @@ export class PlanExecutor {
     }
     let targetRoom = person?.room ?? null;
     if (!targetRoom) {
+      // 大小写不敏感:英文世界别名是小写,步骤文本/玩家输入常是 Title Case
+      // (「Go to Town Hall」)。中文世界无大小写,行为不变。
+      const hay = step.text.toLowerCase();
       for (const [roomId, aliases] of Object.entries(this.opts.roomAliases ?? {})) {
-        if (aliases.some((a) => a.length >= 2 && step.text.includes(a))) { targetRoom = roomId; break; }
+        if (aliases.some((a) => a.length >= 2 && hay.includes(a.toLowerCase()))) { targetRoom = roomId; break; }
       }
     }
     if (!targetRoom) {
