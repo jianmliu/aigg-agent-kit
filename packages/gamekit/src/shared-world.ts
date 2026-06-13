@@ -32,6 +32,7 @@ import {
   decayNeeds, satisfy, summarizeNeeds, urgent, DEFAULT_NEEDS_CONFIG,
   type NeedsState, type NeedsConfig
 } from '@onchainpal/npc-agent';
+import type { ActionContext } from './actions/registry';
 
 const W: Scope = { type: 'world' };
 const ONCHAIN = { onchain: true } as const;
@@ -457,6 +458,35 @@ export class SharedWorld {
     return (await this.getScoped<NeedsState>(needsKey(npcId))) ?? {};
   }
 
+  /**
+   * buildActionContext — assemble the synchronous ActionContext for the agent
+   * action loop (spec §4.2 step 2). ALL the async原料 reads happen HERE (tick 内
+   * await ONCE); the returned ctx is a plain snapshot so each action's
+   * available()/resolve() stays a PURE function (determinism 铁律 / 教训 E).
+   *
+   * P1 does NOT inject a memory bundle into the persona (avoids per-turn
+   * memory.select/discernment IO + widening the非确定边界) — aligned with
+   * refreshAgency, which plans without select; memory门控 stays inside the `say`
+   * action's talk() (which carries its own select/discernment). `now` is injected
+   * by the caller (tick 顶层取一次) — never Date.now() inside the context.
+   */
+  async buildActionContext(npcId: string, now: number, opts?: { marketRoom?: string }): Promise<ActionContext> {
+    const rec = await this.getNpc(npcId);
+    if (!rec) throw new Error(`no npc ${npcId}`);
+    const [balanceGcc, balanceSilver, needs, ricePrice, inRoom] = await Promise.all([
+      this.balanceGcc(npcId), this.balanceSilver(npcId), this.needsOf(npcId), this.ricePrice(), this.npcsInRoom(rec.room)
+    ]);
+    const npcsInRoom = inRoom.filter((n) => n.id !== npcId);   // 在场者剔自己
+    const persona = this.personaFor(rec);                      // P1: 不注入记忆 bundle
+    persona.language = this.language;
+    return {
+      npcId, persona, room: rec.room, npcsInRoom,
+      balanceGcc, balanceSilver, needs, ricePrice,
+      ...(opts?.marketRoom ? { marketRoom: opts.marketRoom } : {}),
+      now
+    };
+  }
+
   /** 显式满足一轴(进食/喝茶等「动作」回填):读 needs → satisfy → 写回 store(不带 ONCHAIN)。
    *  与 tradeRice 成对——消费抽走市场供给的同时回填食轴,否则下一拍仍匮乏、无限买空银两。 */
   async satisfyNeed(npcId: string, axis: string, amount: number): Promise<NeedsState> {
@@ -498,6 +528,14 @@ export class SharedWorld {
     if (q[q.length - 1] === p) return; // de-dup a repeated directive
     q.push(p);
     this.gotoInbox.set(npcId, q);
+  }
+
+  /** Peek (without draining) whether an NPC has pending goto directives — the
+   *  action loop reads this to YIELD the body to the PlanExecutor next tick: a
+   *  move action's pushGoto must be walked (takeGoto) one hop/tick, so an NPC
+   *  with a queued directive is NOT eligible for a fresh action turn. Pure read. */
+  hasPendingGoto(npcId: string): boolean {
+    return (this.gotoInbox.get(npcId)?.length ?? 0) > 0;
   }
 
   /** Drain (and clear) an NPC's pending goto directives — the executor calls this. */
@@ -838,6 +876,27 @@ export class SharedWorld {
    *  对外 public(seed/兜底用);内部转账走私有 addSilver。 */
   async grantSilver(npcId: string, amount: number): Promise<number> {
     return this.addSilver(npcId, amount);
+  }
+
+  /**
+   * transferSilver — 转银两 (the `give` action, spec §4.1/fiveActions): atomic
+   * `addSilver(from, -n)` + `addSilver(to, +n)` over the off-chain 游戏货币 account
+   * (never ONCHAIN, never the settlement rail), and emit a `silverTransferred`
+   * WorldEvent so the state change reaches the tick-anchored event stream
+   * (spec §5.5 — every action's state mutation is emitted). Amount is clamped to
+   * the sender's balance (addSilver clamps ≥0 on the receiver/sender both). A
+   * non-positive amount or self-transfer is a no-op.
+   */
+  async transferSilver(fromId: string, toId: string, amount: number): Promise<{ ok: boolean; reason?: string; fromBalance: number; toBalance: number }> {
+    const fromBal0 = await this.balanceSilver(fromId);
+    if (!(amount > 0)) return { ok: false, reason: 'bad_amount', fromBalance: fromBal0, toBalance: await this.balanceSilver(toId) };
+    if (fromId === toId) return { ok: false, reason: 'self_transfer', fromBalance: fromBal0, toBalance: fromBal0 };
+    const moved = Math.min(amount, fromBal0);                  // clamp to what the sender actually has
+    if (!(moved > 0)) return { ok: false, reason: 'insufficient_silver', fromBalance: fromBal0, toBalance: await this.balanceSilver(toId) };
+    const fromBalance = await this.addSilver(fromId, -moved);  // both writes are off-chain (no ONCHAIN)
+    const toBalance = await this.addSilver(toId, moved);
+    this.emit([{ kind: 'silverTransferred', fromId, toId, amount: moved, fromBalance, toBalance } as WorldEvent], { now: Date.now() });
+    return { ok: true, fromBalance, toBalance };
   }
 
   /**

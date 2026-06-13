@@ -82,3 +82,47 @@ export function parseAgentIntent(raw: string): ParseResult {
   };
   return { ok: true, intent, droppedEffects: dropped.length ? dropped : undefined };
 }
+
+/**
+ * Action-loop choice parser (agent-action-loop.md §4.4 / determinism).
+ * The LLM is asked to pick ONE action from the offered menu and emit
+ *   {"actionId":"say","args":{...},"say":"..."}
+ * We tolerate ```json fences + prose (extractJson), validate the envelope, and
+ * — crucially — NEVER let model wording wedge the turn (PlanExecutor 范式):
+ *   - no JSON / bad shape / unknown actionId → FALL BACK to a known action
+ *     (prefer 'say' if offered, else the first known id), with empty args.
+ * `args` stays an opaque object; each WorldAction.resolve narrows its own fields
+ * (so one malformed arg degrades inside resolve, never throws here).
+ */
+const choiceSchema = z.object({
+  actionId: z.string().optional(),
+  action: z.string().optional(),   // tolerate the model naming the field `action`
+  args: z.record(z.unknown()).optional(),
+  say: z.string().optional()
+});
+
+export interface ActionChoice {
+  actionId: string;
+  args: Record<string, unknown>;
+  say?: string;
+  /** true when we had to fall back (unknown/missing id or unparseable output). */
+  fellBack: boolean;
+}
+
+export function parseActionChoice(raw: string, knownIds: string[]): ActionChoice {
+  const fallbackId = knownIds.includes('say') ? 'say' : (knownIds[0] ?? 'say');
+  const fallback = (say?: string): ActionChoice => ({ actionId: fallbackId, args: {}, fellBack: true, ...(say ? { say } : {}) });
+
+  const json = extractJson(raw);
+  if (!json) return fallback();
+  let obj: unknown;
+  try { obj = JSON.parse(json); } catch { return fallback(); }
+  const parsed = choiceSchema.safeParse(obj);
+  if (!parsed.success) return fallback();
+
+  const id = parsed.data.actionId ?? parsed.data.action;
+  const say = parsed.data.say?.trim() ? parsed.data.say.trim() : undefined;
+  const args = parsed.data.args ?? {};
+  if (!id || !knownIds.includes(id)) return fallback(say);
+  return { actionId: id, args, fellBack: false, ...(say ? { say } : {}) };
+}

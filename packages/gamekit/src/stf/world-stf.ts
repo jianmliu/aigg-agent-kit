@@ -102,6 +102,8 @@ export type WorldEvent =
   | { kind: 'activated'; npcId: string; balanceGcc: number }
   | { kind: 'donated'; npcId: string; balanceGcc: number }
   | { kind: 'exchanged'; npcId: string; silver: number; gcc: number; balanceGcc: number }
+  /** 转银两 (give action) — off-chain 游戏货币原子转账;状态变更经 emit 锚定 tick (spec §5.5)。 */
+  | { kind: 'silverTransferred'; fromId: string; toId: string; amount: number; fromBalance: number; toBalance: number }
   | { kind: 'moved'; npcId: string; room: string }
   | { kind: 'affinityChanged'; npcId: string; playerId: string; delta: number; affinity: number }
   | { kind: 'flagSet'; playerId: string; flag: string; value: number }
