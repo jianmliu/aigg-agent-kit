@@ -443,7 +443,10 @@ export class SharedWorld {
       // 最紧迫未满足需求 → seed goal(spec B,轻、失败静默;纯 store 世界无 memory 时无操作)
       const top = urgent(next, this.needsCfg.axes)[0];
       if (top && this.memory) {
-        void this.rememberGoal(npcId, `need_${top}`, `你${summarizeNeeds({ [top]: next[top] }, this.needsCfg.axes)}——设法满足这一需求`).catch(() => {});
+        const lang = this.language ?? 'zh';
+        const lack = summarizeNeeds({ [top]: next[top] }, this.needsCfg.axes, 30, lang);
+        const goalText = lang === 'en' ? `You are ${lack} — see to it` : `你${lack}——设法满足这一需求`;
+        void this.rememberGoal(npcId, `need_${top}`, goalText).catch(() => {});
       }
       return next;
     } catch { return null; }
@@ -1256,9 +1259,10 @@ export class SharedWorld {
     // 需求 → prompt:把当前需求摘成一行,与【记忆】/【裁断】同槽(经 personaFor→role 进 oracle)。
     // 行为仍由 AI 据此推理(spec 非目标:不硬规则驱动)。全足→summarize 返 '' →不注入。
     try {
+      const lang = input.lang ?? this.language;     // 玩家覆盖 ?? 世界默认(与 say 同步)
       const needs = await this.needsOf(input.npcId);
-      const line = summarizeNeeds(needs, this.needsCfg.axes);
-      if (line) memoryBundle = `${memoryBundle ? memoryBundle + '\n' : ''}【需求】${line}`;
+      const line = summarizeNeeds(needs, this.needsCfg.axes, 30, lang);
+      if (line) memoryBundle = `${memoryBundle ? memoryBundle + '\n' : ''}${lang === 'en' ? '[Needs] ' : '【需求】'}${line}`;
     } catch { /* needs 不可用 — 照常对话 */ }
 
     const persona = this.personaFor(rec, memoryBundle);
