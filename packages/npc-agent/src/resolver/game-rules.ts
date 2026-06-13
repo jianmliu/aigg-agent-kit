@@ -46,6 +46,9 @@ export class DefaultGameRules implements GameRules {
       case 'advanceQuest':
         if (!effect.questId?.trim()) return { ok: false, reason: 'empty questId' };
         return { ok: true };
+      case 'goto':
+        if (!effect.place?.trim()) return { ok: false, reason: 'empty place' };
+        return { ok: true };
       default: {
         const _exhaustive: never = effect;
         return { ok: false, reason: `unknown effect ${(_exhaustive as Effect).kind}` };

@@ -109,6 +109,27 @@ export class ZeroGBrokerProvider implements InferenceProvider {
     } catch { return null; }
   }
 
+  /**
+   * Boot-time warm-up: do the one-time on-chain acknowledgeProviderSigner up front
+   * so the FIRST player dialog doesn't pay for it (the ack is a 0G mainnet tx that
+   * can take tens of seconds; steady-state complete() is a few seconds). Runs the
+   * provider pick + metadata + ack only — NO inference, so it costs no OG. Never
+   * throws: a wallet/RPC/SDK failure here must not block boot — the ack just falls
+   * back to lazily happening on the first complete() as before.
+   */
+  async prewarm(): Promise<void> {
+    try {
+      const provider = await this.ensureProvider();
+      await this.broker.inference.getServiceMetadata(provider);
+      if (!this.acked.has(provider)) {
+        await this.broker.inference.acknowledgeProviderSigner(provider);
+        this.acked.add(provider);
+      }
+    } catch (e) {
+      console.warn('[ZeroGBrokerProvider] prewarm 失败(首条对话将自行 ack):', e instanceof Error ? e.message : e);
+    }
+  }
+
   async complete(request: InferenceRequest): Promise<InferenceResult> {
     const provider = await this.ensureProvider();
     const { endpoint, model } = await this.broker.inference.getServiceMetadata(provider);

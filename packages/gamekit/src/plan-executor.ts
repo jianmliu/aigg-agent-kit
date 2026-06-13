@@ -82,6 +82,14 @@ export class PlanExecutor {
   }
 
   async runTick(): Promise<PlanAction> {
+    // player/NPC directives (goto 算子) preempt: a fresh「去客栈」leads the queue,
+    // ahead of any standing plan and even the half-done current step.
+    const directives = this.world.takeGoto(this.opts.npcId);
+    if (directives.length) {
+      if (this.queue === null) this.queue = [];
+      if (this.current) { this.queue.unshift(this.current); this.current = null; }
+      this.queue.unshift(...directives.map((text) => ({ text })));
+    }
     if (!this.current) {
       if (this.queue === null) await this.loadFromMemory();
       this.current = this.queue!.shift() ?? null;

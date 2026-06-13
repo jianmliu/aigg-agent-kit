@@ -65,6 +65,39 @@ async function main() {
     assert.ok(r.attestation?.promptHash?.startsWith('0x'), 'still records prompt/response hashes');
     console.log('  ✓ unverified: processResponse=false → no signature (no false TEE claim)');
   }
+  // --- prewarm: the on-chain ack happens up front, exactly once, and is NOT
+  //     repeated on the first real complete() (boot warm-up, no double-spend) ---
+  {
+    const calls: string[] = [];
+    const cap: { url?: string; init?: any } = {};
+    const p = new ZeroGBrokerProvider({ broker: fakeBroker(true, calls), fetchImpl: fakeFetch(cap) });
+
+    await p.prewarm();
+    assert.equal(calls.filter((c) => c.startsWith('ack:')).length, 1, 'prewarm acks exactly once');
+    assert.ok(calls.includes('ack:0xTEE'), 'prewarm acks the picked TeeML provider');
+    assert.ok(!calls.some((c) => c.startsWith('verify:')), 'prewarm runs NO inference (no verify/OG spend)');
+    assert.ok(cap.url === undefined, 'prewarm does NOT POST to the provider endpoint (no inference)');
+
+    await p.complete({ prompt: 'first real dialog' });
+    assert.equal(calls.filter((c) => c.startsWith('ack:')).length, 1, 'complete() after prewarm does NOT re-acknowledge');
+    assert.equal(cap.url, 'https://tee.example/v1/chat/completions', 'complete() still POSTs once warmed');
+    console.log('  ✓ prewarm: acks once at boot, no inference; later complete() reuses the ack (no re-acknowledge)');
+  }
+  // --- prewarm never throws: a broker that fails the ack must not block boot ---
+  {
+    const broken: ZeroGBroker = {
+      inference: {
+        async listService() { return [{ provider: '0xTEE', verifiability: 'TeeML', model: 'glm-5' }]; },
+        async getServiceMetadata() { return { endpoint: 'https://tee.example/v1', model: 'glm-5' }; },
+        async acknowledgeProviderSigner() { throw new Error('0G RPC unreachable'); },
+        async getRequestHeaders() { return {}; },
+        async processResponse() { return false; },
+      },
+    };
+    const p = new ZeroGBrokerProvider({ broker: broken, fetchImpl: fakeFetch({}) });
+    await p.prewarm();  // must resolve, not reject
+    console.log('  ✓ prewarm: swallows ack failure (boot proceeds even if 0G is unreachable)');
+  }
   console.log('\nZEROG-BROKER-PROVIDER SMOKE PASSED ✅');
 }
 

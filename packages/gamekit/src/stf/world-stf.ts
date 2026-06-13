@@ -39,8 +39,10 @@ export interface WorldState {
   markets?: Record<string, PredictionMarket>;
 }
 
-/** pump-town's constant-product AMM pool. Spot price p_t = usdcReserve/gccReserve (USDC per GCC). */
-export interface MarketState { gccReserve: number; usdcReserve: number; supply: number }
+/** 恒积做市池。Spot price p_t = silverReserve/riceReserve(银 per 米/货)。
+ *  正名:riceReserve 为货储(米/麦酒桶),silverReserve 为币储(银两/白银);
+ *  pump-town 语境下即 GCC储×USDC储,现 GCC 与游戏货币(银两)分离后正名货/币两边。 */
+export interface MarketState { riceReserve: number; silverReserve: number; supply: number }
 
 /**
  * A binary, parimutuel prediction market. Resolves YES iff the AMM spot price
@@ -75,8 +77,8 @@ export type WorldTx =
    */
   | { type: 'luckEvent'; npcId: string; gccDelta?: number; gccFactor?: number; affinityDelta?: number; playerId?: string; label?: string; now: number }
   // ── pump-town economic core (the high-stake, on-chain-executed subset) ──────
-  /** Seed the constant-product AMM pool + initial GCC supply (genesis-ish). */
-  | { type: 'initMarket'; gccReserve: number; usdcReserve: number; supply?: number }
+  /** Seed the constant-product AMM pool + initial supply (genesis-ish). */
+  | { type: 'initMarket'; riceReserve: number; silverReserve: number; supply?: number }
   /** An AMM swap by an agent — pump-town's CHEATABLE core (deterministic pricing,
    *  no fake fills / no front-run beyond tx order). buy: `amountIn` USDC → GCC out;
    *  sell: `amountIn` GCC → USDC out. */
@@ -99,6 +101,7 @@ export type WorldEvent =
   | { kind: 'npcCreated'; npcId: string; status: 'draft' | 'active' }
   | { kind: 'activated'; npcId: string; balanceGcc: number }
   | { kind: 'donated'; npcId: string; balanceGcc: number }
+  | { kind: 'exchanged'; npcId: string; silver: number; gcc: number; balanceGcc: number }
   | { kind: 'moved'; npcId: string; room: string }
   | { kind: 'affinityChanged'; npcId: string; playerId: string; delta: number; affinity: number }
   | { kind: 'flagSet'; playerId: string; flag: string; value: number }
@@ -106,8 +109,8 @@ export type WorldEvent =
   | { kind: 'burned'; npcId: string; gccCost: number; balanceGcc: number }
   /** an exogenous luck shock; `gccAfter - gccBefore` IS the realized luck score (exact, auditable). */
   | { kind: 'luck'; npcId: string; label?: string; gccBefore: number; gccAfter: number }
-  | { kind: 'marketInit'; gccReserve: number; usdcReserve: number; supply: number }
-  | { kind: 'traded'; agentId: string; side: 'buy' | 'sell'; amountIn: number; out: number; price: number; gccReserve: number; usdcReserve: number }
+  | { kind: 'marketInit'; riceReserve: number; silverReserve: number; supply: number }
+  | { kind: 'traded'; agentId: string; side: 'buy' | 'sell'; amountIn: number; out: number; price: number; riceReserve: number; silverReserve: number }
   | { kind: 'dividend'; perGcc: number; totalPaid: number }
   | { kind: 'marketOpened'; marketId: string; threshold: number }
   | { kind: 'betPlaced'; marketId: string; agentId: string; side: 'YES' | 'NO'; amount: number; yesPool: number; noPool: number }
@@ -122,16 +125,16 @@ export const relKey = (npcId: string, playerId: string) => `${npcId}|${playerId}
  * NB: float math here is the REFERENCE implementation; a Solidity `PumpWorld` port
  * uses fixed-point and the differential test must reconcile rounding.
  */
-export function ammSwap(m: MarketState, side: 'buy' | 'sell', amountIn: number): { out: number; price: number; gccReserve: number; usdcReserve: number } {
-  const k = m.gccReserve * m.usdcReserve;
+export function ammSwap(m: MarketState, side: 'buy' | 'sell', amountIn: number): { out: number; price: number; riceReserve: number; silverReserve: number } {
+  const k = m.riceReserve * m.silverReserve;
   if (side === 'buy') {
-    const usdcReserve = m.usdcReserve + amountIn;
-    const gccReserve = k / usdcReserve;
-    return { out: m.gccReserve - gccReserve, price: usdcReserve / gccReserve, gccReserve, usdcReserve };
+    const silverReserve = m.silverReserve + amountIn;
+    const riceReserve = k / silverReserve;
+    return { out: m.riceReserve - riceReserve, price: silverReserve / riceReserve, riceReserve, silverReserve };
   }
-  const gccReserve = m.gccReserve + amountIn;
-  const usdcReserve = k / gccReserve;
-  return { out: m.usdcReserve - usdcReserve, price: usdcReserve / gccReserve, gccReserve, usdcReserve };
+  const riceReserve = m.riceReserve + amountIn;
+  const silverReserve = k / riceReserve;
+  return { out: m.silverReserve - silverReserve, price: silverReserve / riceReserve, riceReserve, silverReserve };
 }
 
 export function emptyWorld(): WorldState {
@@ -222,8 +225,8 @@ export function applyTx(prev: WorldState, tx: WorldTx, rules: GameRules): { stat
       break;
     }
     case 'initMarket': {
-      state.market = { gccReserve: tx.gccReserve, usdcReserve: tx.usdcReserve, supply: tx.supply ?? 0 };
-      events.push({ kind: 'marketInit', gccReserve: tx.gccReserve, usdcReserve: tx.usdcReserve, supply: state.market.supply });
+      state.market = { riceReserve: tx.riceReserve, silverReserve: tx.silverReserve, supply: tx.supply ?? 0 };
+      events.push({ kind: 'marketInit', riceReserve: tx.riceReserve, silverReserve: tx.silverReserve, supply: state.market.supply });
       break;
     }
     case 'trade': {
@@ -235,8 +238,8 @@ export function applyTx(prev: WorldState, tx: WorldTx, rules: GameRules): { stat
       if (tx.side === 'buy' && usdcBal < tx.amountIn) { events.push({ kind: 'rejected', reason: 'insufficient_usdc', tx }); break; }
       if (tx.side === 'sell' && gccBal < tx.amountIn) { events.push({ kind: 'rejected', reason: 'insufficient_gcc', tx }); break; }
       const sw = ammSwap(state.market, tx.side, tx.amountIn);
-      state.market.gccReserve = sw.gccReserve;
-      state.market.usdcReserve = sw.usdcReserve;
+      state.market.riceReserve = sw.riceReserve;
+      state.market.silverReserve = sw.silverReserve;
       if (tx.side === 'buy') {
         state.usdc[tx.agentId] = usdcBal - tx.amountIn;       // USDC moves agent → reserve
         state.balances[tx.agentId] = gccBal + sw.out;          // GCC moves reserve → agent
@@ -244,7 +247,7 @@ export function applyTx(prev: WorldState, tx: WorldTx, rules: GameRules): { stat
         state.balances[tx.agentId] = gccBal - tx.amountIn;
         state.usdc[tx.agentId] = usdcBal + sw.out;
       }
-      events.push({ kind: 'traded', agentId: tx.agentId, side: tx.side, amountIn: tx.amountIn, out: sw.out, price: sw.price, gccReserve: sw.gccReserve, usdcReserve: sw.usdcReserve });
+      events.push({ kind: 'traded', agentId: tx.agentId, side: tx.side, amountIn: tx.amountIn, out: sw.out, price: sw.price, riceReserve: sw.riceReserve, silverReserve: sw.silverReserve });
       break;
     }
     case 'dividend': {
@@ -288,7 +291,7 @@ export function applyTx(prev: WorldState, tx: WorldTx, rules: GameRules): { stat
       if (!m) { events.push({ kind: 'rejected', reason: 'no_market', tx }); break; }
       if (m.status !== 'open') { events.push({ kind: 'rejected', reason: 'already_resolved', tx }); break; }
       if (!state.market) { events.push({ kind: 'rejected', reason: 'no_amm_price', tx }); break; }
-      const price = state.market.usdcReserve / state.market.gccReserve;   // ← internal, deterministic truth
+      const price = state.market.silverReserve / state.market.riceReserve;   // ← internal, deterministic truth
       const outcome: 'YES' | 'NO' = price >= m.threshold ? 'YES' : 'NO';
       const totalPool = m.yesPool + m.noPool;
       const winPool = outcome === 'YES' ? m.yesPool : m.noPool;

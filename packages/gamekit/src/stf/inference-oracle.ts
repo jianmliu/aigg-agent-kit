@@ -22,6 +22,8 @@ import type {
 export interface OracleInput {
   npcId: string;
   playerId: string;
+  /** who the NPC is speaking WITH (the player, or a fellow NPC) — frames the line. */
+  interlocutor?: { name: string; kind: 'player' | 'npc' };
   text: string;
   persona: NpcPersona;
   /** the NPC's GCC balance (gates thinking via metabolism). null = unknown. */
@@ -77,7 +79,7 @@ export class LlmInferenceOracle implements InferenceOracle {
       metabolism: this.o.metabolism, readBalanceGcc: async () => input.balanceGcc,
       hungerLine: this.o.hungerLine, temperature: this.o.temperature,
     });
-    const intent = await agent.perceive({ kind: 'interaction', npcId: input.persona.id, playerId: input.playerId, text: input.text } as Perception);
+    const intent = await agent.perceive({ kind: 'interaction', npcId: input.persona.id, playerId: input.playerId, interlocutor: input.interlocutor, text: input.text } as Perception);
 
     return {
       say: intent?.say?.trim() ? intent.say.trim() : null,

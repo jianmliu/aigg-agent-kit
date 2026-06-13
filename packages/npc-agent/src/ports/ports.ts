@@ -21,6 +21,10 @@ export interface Perception {
   npcId?: string;
   /** who the player is — the key for per-player memory and relationship. */
   playerId: string;
+  /** who the NPC is actually speaking WITH — the player, or a fellow NPC
+   *  (钱塘大集 NPC↔NPC). Drives how the line is framed/addressed; when absent
+   *  the prompt assumes the player. */
+  interlocutor?: { name: string; kind: 'player' | 'npc' };
   sceneId?: number | null;
   /** distance in abstract tiles, if spatial. */
   distance?: number;

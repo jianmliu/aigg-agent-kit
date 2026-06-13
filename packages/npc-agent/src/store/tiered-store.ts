@@ -19,8 +19,9 @@ export const durableExceptBalance: ArchivePredicate = (_scope, key, opts) =>
 
 /**
  * Cross-server policy: mirror to the shared tier ONLY the stable, cross-server
- * subset — world-scoped **NPC identity** (`npc:<id>`) and the **registry**
- * (`world:npcs`). Everything else stays local.
+ * subset — ①层 **NPC identity** (`npc:<id>` record + `npc:<id>:tokenId`) and the
+ * per-world **registry** (`world:npcs` legacy bare / `w:<worldId>:npcs` scoped).
+ * Everything else stays local.
  *
  * Why narrower than {@link durableExceptBalance}: when the archive's head index
  * is ON-CHAIN (MudStore → KvWorld, the trustless cross-server head pointer),
@@ -30,12 +31,35 @@ export const durableExceptBalance: ArchivePredicate = (_scope, key, opts) =>
  * the local warm tier and is reconciled to the shared world only at milestones.
  * The result: a second server recovers WHICH NPCs exist and their identity from
  * chain + DSN, while routine conversation never touches the chain.
+ *
+ * economy-multiverse §1/§2 note: ②层 store keys living in the `world` Scope are
+ * world-scoped (`w:<worldId>:…` — silver/rice/needs/market/bets/diary/log). Whether
+ * a world's ②层 data joins the shared tier is decided by THAT world's own chain
+ * anchor, NOT this global identity layer — so the only scoped key mirrored here
+ * is the **registry** (`w:<worldId>:npcs`, kept so PR-B cross-server NPC
+ * enumeration survives the rename). Scoped per-npc ②層 keys such as
+ * `w:<worldId>:npc:<id>:rice` deliberately FALL OUT of the shared tier (they no
+ * longer `startsWith('npc:')` nor match the npcs regex) — world-local data, not
+ * global identity. The ①层 `npc:<id>` record stays bare → still matched.
+ *
+ * Relationships are the exception in HOW they isolate: they live in the
+ * `npc-player` Scope (not `world`), so the `w:<worldId>:…` key path above does NOT
+ * cover them. RelationshipMemory instead world-isolates via a **content-key
+ * prefix** (`w:<worldId>:relationship`, see relationship.ts), and the `npc-player`
+ * branch below returns false regardless — hot per-visitor relationship state never
+ * mirrors to the shared tier per turn (PR-B intent). So rels are world-isolated,
+ * just NOT via this predicate's `world`-scope keys — don't read this list as
+ * "rels are a `w:<id>:` scoped key".
  */
 export const crossServerStable: ArchivePredicate = (scope, key, opts) => {
   if (!opts?.onchain) return false;
   if (scope.type !== 'world') return false;     // relationships (npc-player) stay local
-  if (key.endsWith(':gcc')) return false;       // volatile balance stays local
-  return key === 'world:npcs' || key.startsWith('npc:'); // registry + NPC identity
+  if (key.endsWith(':gcc')) return false;       // volatile balance stays local — endsWith still holds for scoped keys
+  // ①层裸形(身份/旧 registry):NPC record `npc:<id>` (+ `:tokenId`) 与旧 `world:npcs`。
+  if (key === 'world:npcs' || key.startsWith('npc:')) return true;
+  // ②层 scoped registry(`w:<worldId>:npcs`)随其世界自己的链锚镜像 → PR-B 跨服枚举不断。
+  if (/^w:[^:]+:npcs$/.test(key)) return true;
+  return false;
 };
 
 export interface TieredStoreOptions {

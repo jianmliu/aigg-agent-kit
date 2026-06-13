@@ -26,7 +26,8 @@ const close = (a: number, b: number, eps = 1e-9) => Math.abs(a - b) < eps;
 async function main() {
   const rich = new Metabolism({ tiers: [{ id: 'r', minBalanceGcc: 0, model: 'm', label: '充盈' }], starvingBelowGcc: -1, defaultTierId: 'r' });
   const world = new SharedWorld({ store: new InMemoryStore(), provider: new Scripted(), metabolism: rich });
-  const mk = (name: string, gcc: number) => world.createNpc({ name, owner: 'host:pal', background: '镇民', room: '余杭集市', startGcc: gcc });
+  // 米市货币边 = 银两(经济分离后),故 seed 走 startSilver。
+  const mk = (name: string, silver: number) => world.createNpc({ name, owner: 'host:pal', background: '镇民', room: '余杭集市', startSilver: silver });
   const ding = await mk('丁大伯', 50);
 
   // 1. no market yet → trade rejected
@@ -43,10 +44,10 @@ async function main() {
   r = await world.tradeRice({ npcId: ding, side: 'buy', amount: 10 });
   assert.equal(r.ok, true);
   const m1 = (await world.riceMarket())!;
-  assert.ok(close(m1.gccReserve * m1.usdcReserve, k0), 'x·y=k preserved');
-  assert.ok(close(m1.usdcReserve, 510), '银两 entered the reserve');
-  assert.ok(close(r.balanceGcc, 40), '银两 left the agent');
-  assert.ok(close(r.rice + m1.gccReserve, 1000), '米 conserved (agent+reserve)');
+  assert.ok(close(m1.riceReserve * m1.silverReserve, k0), 'x·y=k preserved');
+  assert.ok(close(m1.silverReserve, 510), '银两 entered the reserve');
+  assert.ok(close(r.balanceSilver, 40), '银两 left the agent');
+  assert.ok(close(r.rice + m1.riceReserve, 1000), '米 conserved (agent+reserve)');
   assert.ok(r.price > 0.5, '囤米抬价');
   console.log(`  ✓ 囤米 10 两 → 得米 ${r.out.toFixed(4)} 石,米价 0.5 → ${r.price.toFixed(4)},k 不变`);
 
@@ -54,9 +55,9 @@ async function main() {
   const sell = await world.tradeRice({ npcId: ding, side: 'sell', amount: r.out });
   const m2 = (await world.riceMarket())!;
   assert.equal(sell.ok, true);
-  assert.ok(close(m2.gccReserve * m2.usdcReserve, k0), 'k preserved after sell');
+  assert.ok(close(m2.riceReserve * m2.silverReserve, k0), 'k preserved after sell');
   assert.ok(close(sell.rice, 0), 'rice holding back to 0');
-  assert.ok(close(sell.balanceGcc, 50), 'silver fully restored (float path: no fee)');
+  assert.ok(close(sell.balanceSilver, 50), 'silver fully restored (float path: no fee)');
   console.log('  ✓ 抛米回程: 双账守恒,k 不变');
 
   // 3. insufficient paths
@@ -90,7 +91,7 @@ async function main() {
   assert.ok(momoTrade && momoTrade.side === 'sell', 'price fell → momentum sells');
   assert.ok(contraTrade && contraTrade.side === 'buy', 'price fell → contrarian buys');
   const mEnd = (await world.riceMarket())!;
-  assert.ok(close(mEnd.gccReserve * mEnd.usdcReserve, k0), 'k preserved through the whole fair');
+  assert.ok(close(mEnd.riceReserve * mEnd.silverReserve, k0), 'k preserved through the whole fair');
   console.log('  ✓ FairTick: 秋收抛米 → 价跌 → momentum 抛 / contrarian 囤;全程 k 不变');
 
   console.log('\nRICE-MARKET SMOKE PASSED ✅');

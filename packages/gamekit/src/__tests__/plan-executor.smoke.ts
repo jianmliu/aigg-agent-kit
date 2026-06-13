@@ -25,6 +25,17 @@ class Scripted implements InferenceProvider {
   }
 }
 
+/** emits a `goto` effect — models the NPC being told「去药铺」by the player. */
+class GotoProvider implements InferenceProvider {
+  readonly id = 'goto';
+  async complete(): Promise<InferenceResult> {
+    return {
+      text: JSON.stringify({ say: '好，我这就去。', effects: [{ kind: 'goto', place: '药铺' }], emotion: '' }),
+      usage: { model: 'g', inputTokens: 1, outputTokens: 1, gccCost: 0 }
+    };
+  }
+}
+
 /** fake aigg-memory: serves plan units (one stale) for planSteps(). */
 function fakeMemory(): AiggMemoryClient {
   const client = new AiggMemoryClient({ baseUrl: 'http://fake' });
@@ -100,6 +111,44 @@ async function main() {
     a = await ex2.runTick();
     assert.deepEqual({ kind: a.kind, to: (a as any).to }, { kind: 'move', to: '药铺' }, 'memory-fed queue drives the walk');
     console.log('  ✓ planSteps: kind=plan units feed the queue; stale = the deterministic re-plan trigger');
+
+    // 5. goto 算子 + 叙事权限闸(Ford 原则): direct command = sudo/owner only;
+    //    strangers can only persuade past the affinity threshold.
+    const world3 = new SharedWorld({ store: new InMemoryStore(), provider: new GotoProvider(), metabolism: rich, rooms: Object.keys(GRAPH) });
+    const lan = await world3.createNpc({ name: '香兰', owner: 'host:pal', background: '丁家长女', room: '集市', startGcc: 2 });
+    const ex3 = new PlanExecutor(world3, { npcId: lan, roomGraph: GRAPH, roomAliases: ALIASES });
+
+    // idle until told
+    assert.equal((await ex3.runTick()).kind, 'idle', 'no plan, no directive → idle');
+    // a STRANGER (not owner, affinity 0 < 30) says「去药铺」→ LLM emits goto, but the gate refuses
+    await world3.talk({ npcId: lan, visitorId: 'player:路人', text: '去药铺' });
+    assert.deepEqual(world3.takeGoto(lan), [], 'stranger cannot command — goto refused (memory/好感 are the only channels)');
+    // the OWNER commands → honored
+    await world3.talk({ npcId: lan, visitorId: 'host:pal', text: '去药铺' });
+    assert.deepEqual(world3.takeGoto(lan), ['药铺'], 'owner commands its own agent');
+    // SUDO commands → honored regardless of owner
+    await world3.talk({ npcId: lan, visitorId: 'player:司命', text: '去药铺', sudo: true });
+    assert.deepEqual(world3.takeGoto(lan), ['药铺'], 'sudo (Ford) commands anyone');
+    // a stranger past the affinity threshold PERSUADES (knob lowered to 0 to test the branch)
+    const world3b = new SharedWorld({ store: new InMemoryStore(), provider: new GotoProvider(), metabolism: rich, rooms: Object.keys(GRAPH), commandAffinity: 0 });
+    const lanB = await world3b.createNpc({ name: '香兰', owner: 'host:pal', background: '丁家长女', room: '集市', startGcc: 2 });
+    await world3b.talk({ npcId: lanB, visitorId: 'player:路人', text: '去药铺' });
+    assert.deepEqual(world3b.takeGoto(lanB), ['药铺'], 'affinity ≥ threshold → persuaded (说动,不是命令)');
+    console.log('  ✓ 叙事权限闸: stranger refused · owner/sudo command · affinity persuades');
+
+    // executor walk (owner-issued directive)
+    world3.pushGoto(lan, '药铺');
+    a = await ex3.runTick();
+    assert.deepEqual({ kind: a.kind, to: (a as any).to }, { kind: 'move', to: '镇内' }, 'goto walks one hop toward 药铺');
+    a = await ex3.runTick();
+    assert.deepEqual({ kind: a.kind, to: (a as any).to }, { kind: 'move', to: '药铺' }, 'second hop arrives');
+
+    // preemption: mid-nothing, a fresh goto leads even over a standing queued step
+    const ex4 = new PlanExecutor(world3, { npcId: lan, roomGraph: GRAPH, roomAliases: ALIASES, steps: ['去菜市场看看'] });
+    world3.pushGoto(lan, '民居');             // 香兰 is now at 药铺
+    a = await ex4.runTick();
+    assert.deepEqual({ kind: a.kind, to: (a as any).to }, { kind: 'move', to: '镇内' }, 'fresh goto preempts the standing step');
+    console.log('  ✓ goto 算子: talk→inbox→executor walks there, preempting standing plans');
 
     console.log('\nPLAN-EXECUTOR SMOKE PASSED ✅');
   } finally {

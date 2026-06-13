@@ -48,7 +48,7 @@ async function main() {
   const committer = new TickCommitter(drive, anchor);
 
   // tick 1: a couple of economic txs → events
-  let s: WorldState = apply(emptyWorld(), { type: 'initMarket', gccReserve: 1000, usdcReserve: 100, supply: 1000 }).state;
+  let s: WorldState = apply(emptyWorld(), { type: 'initMarket', riceReserve: 1000, silverReserve: 100, supply: 1000 }).state;
   s.usdc = { a1: 50 };
   const r1 = apply(s, { type: 'trade', agentId: 'a1', side: 'buy', amountIn: 10, now: 1 });
   s = r1.state;

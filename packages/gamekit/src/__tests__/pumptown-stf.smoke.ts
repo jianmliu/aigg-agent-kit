@@ -14,44 +14,44 @@ import { applyTx, applyAll, ammSwap, emptyWorld, stateRoot, type WorldState, typ
 const rules = new DefaultGameRules();
 const apply = (s: WorldState, tx: WorldTx) => applyTx(s, tx, rules).state;
 const near = (a: number, b: number, eps = 1e-9) => Math.abs(a - b) <= eps * Math.max(1, Math.abs(a), Math.abs(b));
-const totalUsdc = (s: WorldState) => Object.values(s.usdc ?? {}).reduce((x, y) => x + y, 0) + (s.market?.usdcReserve ?? 0);
-const totalGcc = (s: WorldState) => Object.values(s.balances ?? {}).reduce((x, y) => x + y, 0) + (s.market?.gccReserve ?? 0);
+const totalUsdc = (s: WorldState) => Object.values(s.usdc ?? {}).reduce((x, y) => x + y, 0) + (s.market?.silverReserve ?? 0);
+const totalGcc = (s: WorldState) => Object.values(s.balances ?? {}).reduce((x, y) => x + y, 0) + (s.market?.riceReserve ?? 0);
 
 function test_initMarket_and_price() {
-  const s = apply(emptyWorld(), { type: 'initMarket', gccReserve: 1000, usdcReserve: 100, supply: 1000 });
+  const s = apply(emptyWorld(), { type: 'initMarket', riceReserve: 1000, silverReserve: 100, supply: 1000 });
   assert.ok(s.market, 'market seeded');
-  assert.equal(s.market!.gccReserve, 1000);
-  assert.equal(s.market!.usdcReserve, 100);
-  assert.ok(near(s.market!.usdcReserve / s.market!.gccReserve, 0.1), 'spot price = usdc/gcc = 0.1');
-  console.log('  ✓ initMarket seeds the AMM; spot price = usdcReserve/gccReserve');
+  assert.equal(s.market!.riceReserve, 1000);
+  assert.equal(s.market!.silverReserve, 100);
+  assert.ok(near(s.market!.silverReserve / s.market!.riceReserve, 0.1), 'spot price = usdc/gcc = 0.1');
+  console.log('  ✓ initMarket seeds the AMM; spot price = silverReserve/riceReserve');
 }
 
 function test_buy_raises_price_and_conserves() {
-  let s = apply(emptyWorld(), { type: 'initMarket', gccReserve: 1000, usdcReserve: 100, supply: 1000 });
+  let s = apply(emptyWorld(), { type: 'initMarket', riceReserve: 1000, silverReserve: 100, supply: 1000 });
   s.usdc = { a1: 50 };
-  const p0 = s.market!.usdcReserve / s.market!.gccReserve;
-  const kBefore = s.market!.gccReserve * s.market!.usdcReserve;
+  const p0 = s.market!.silverReserve / s.market!.riceReserve;
+  const kBefore = s.market!.riceReserve * s.market!.silverReserve;
   const usdcBefore = totalUsdc(s), gccBefore = totalGcc(s);
 
   s = apply(s, { type: 'trade', agentId: 'a1', side: 'buy', amountIn: 10, now: 1 });
-  const p1 = s.market!.usdcReserve / s.market!.gccReserve;
+  const p1 = s.market!.silverReserve / s.market!.riceReserve;
   assert.ok(p1 > p0, 'buying GCC raises price');
   assert.equal(s.usdc!.a1, 40, 'agent USDC -= amountIn (10)');
   assert.ok(s.balances.a1 > 0, 'agent receives GCC out');
-  assert.ok(near(s.market!.gccReserve * s.market!.usdcReserve, kBefore), 'x·y=k preserved');
+  assert.ok(near(s.market!.riceReserve * s.market!.silverReserve, kBefore), 'x·y=k preserved');
   assert.ok(near(totalUsdc(s), usdcBefore), 'USDC conserved (agent → reserve, none minted)');
   assert.ok(near(totalGcc(s), gccBefore), 'GCC conserved (reserve → agent)');
   console.log('  ✓ buy raises price, preserves k, conserves USDC+GCC (no minting)');
 }
 
 function test_sell_lowers_price_roundtrip() {
-  let s = apply(emptyWorld(), { type: 'initMarket', gccReserve: 1000, usdcReserve: 100, supply: 1000 });
+  let s = apply(emptyWorld(), { type: 'initMarket', riceReserve: 1000, silverReserve: 100, supply: 1000 });
   s.usdc = { a1: 50 };
   s = apply(s, { type: 'trade', agentId: 'a1', side: 'buy', amountIn: 10, now: 1 });
   const gccHeld = s.balances.a1;
-  const pAfterBuy = s.market!.usdcReserve / s.market!.gccReserve;
+  const pAfterBuy = s.market!.silverReserve / s.market!.riceReserve;
   s = apply(s, { type: 'trade', agentId: 'a1', side: 'sell', amountIn: gccHeld, now: 2 });
-  const pAfterSell = s.market!.usdcReserve / s.market!.gccReserve;
+  const pAfterSell = s.market!.silverReserve / s.market!.riceReserve;
   assert.ok(pAfterSell < pAfterBuy, 'selling lowers price back down');
   assert.ok(near(s.balances.a1, 0), 'agent sold all GCC back');
   // round-trip loses a little USDC to slippage (no fee, but price impact) → agent ≤ 50
@@ -60,7 +60,7 @@ function test_sell_lowers_price_roundtrip() {
 }
 
 function test_dividend_pays_per_gcc() {
-  let s = apply(emptyWorld(), { type: 'initMarket', gccReserve: 1000, usdcReserve: 100 });
+  let s = apply(emptyWorld(), { type: 'initMarket', riceReserve: 1000, silverReserve: 100 });
   s.balances = { a1: 200, a2: 50 };
   s.usdc = { a1: 0, a2: 0 };
   const r = applyTx(s, { type: 'dividend', perGcc: 0.01 }, rules);
@@ -77,7 +77,7 @@ function test_rejects() {
   assert.equal(r.events[0].kind, 'rejected');
   assert.equal((r.events[0] as any).reason, 'no_market');
   // insufficient balance
-  let s = apply(emptyWorld(), { type: 'initMarket', gccReserve: 1000, usdcReserve: 100 });
+  let s = apply(emptyWorld(), { type: 'initMarket', riceReserve: 1000, silverReserve: 100 });
   r = applyTx(s, { type: 'trade', agentId: 'a1', side: 'buy', amountIn: 999, now: 1 }, rules);
   assert.equal((r.events[0] as any).reason, 'insufficient_usdc');
   console.log('  ✓ trade rejects: no_market / insufficient balance (no value created)');
@@ -85,7 +85,7 @@ function test_rejects() {
 
 function test_deterministic_replay() {
   const txs: WorldTx[] = [
-    { type: 'initMarket', gccReserve: 1000, usdcReserve: 100, supply: 1000 },
+    { type: 'initMarket', riceReserve: 1000, silverReserve: 100, supply: 1000 },
     { type: 'trade', agentId: 'a1', side: 'buy', amountIn: 10, now: 1 },
     { type: 'trade', agentId: 'a2', side: 'buy', amountIn: 5, now: 2 },
     { type: 'dividend', perGcc: 0.001 },
@@ -101,11 +101,11 @@ function test_deterministic_replay() {
 // total USDC anywhere in the system: agent balances + AMM reserve + escrowed market pools
 const totalUsdcAll = (s: WorldState) =>
   Object.values(s.usdc ?? {}).reduce((x, y) => x + y, 0) +
-  (s.market?.usdcReserve ?? 0) +
+  (s.market?.silverReserve ?? 0) +
   Object.values(s.markets ?? {}).reduce((x, m) => x + m.yesPool + m.noPool, 0);
 
 function test_prediction_resolves_on_amm_price() {
-  let s = apply(emptyWorld(), { type: 'initMarket', gccReserve: 1000, usdcReserve: 100, supply: 1000 });
+  let s = apply(emptyWorld(), { type: 'initMarket', riceReserve: 1000, silverReserve: 100, supply: 1000 });
   s.usdc = { a1: 50, a2: 50, whale: 200 };
   const usdc0 = totalUsdcAll(s);
   s = apply(s, { type: 'openMarket', marketId: 'm1', threshold: 0.15, now: 1 });
@@ -114,7 +114,7 @@ function test_prediction_resolves_on_amm_price() {
   assert.equal(s.usdc!.a1, 30, 'a1 staked 20 → 30 left'); assert.equal(s.usdc!.a2, 20, 'a2 staked 30 → 20 left');
   // whale buys → price climbs well above 0.15
   s = apply(s, { type: 'trade', agentId: 'whale', side: 'buy', amountIn: 100, now: 4 });
-  const price = s.market!.usdcReserve / s.market!.gccReserve;
+  const price = s.market!.silverReserve / s.market!.riceReserve;
   assert.ok(price >= 0.15, 'price pushed above threshold → YES');
   s = apply(s, { type: 'resolveMarket', marketId: 'm1', now: 5 });
   const m = s.markets!.m1;
@@ -126,7 +126,7 @@ function test_prediction_resolves_on_amm_price() {
 }
 
 function test_prediction_refund_when_no_winners() {
-  let s = apply(emptyWorld(), { type: 'initMarket', gccReserve: 1000, usdcReserve: 100 });
+  let s = apply(emptyWorld(), { type: 'initMarket', riceReserve: 1000, silverReserve: 100 });
   s.usdc = { a1: 50, a2: 50 };
   s = apply(s, { type: 'openMarket', marketId: 'm2', threshold: 0.5, now: 1 }); // price 0.1, no trades → resolves NO
   s = apply(s, { type: 'bet', marketId: 'm2', agentId: 'a1', side: 'YES', amount: 20, now: 2 });
@@ -138,7 +138,7 @@ function test_prediction_refund_when_no_winners() {
 }
 
 function test_prediction_rejects() {
-  let s = apply(emptyWorld(), { type: 'initMarket', gccReserve: 1000, usdcReserve: 100 });
+  let s = apply(emptyWorld(), { type: 'initMarket', riceReserve: 1000, silverReserve: 100 });
   s.usdc = { a1: 50 };
   // bet on nonexistent market
   assert.equal((applyTx(s, { type: 'bet', marketId: 'nope', agentId: 'a1', side: 'YES', amount: 5, now: 1 }, rules).events[0] as any).reason, 'no_market');

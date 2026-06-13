@@ -13,7 +13,8 @@ const effectSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('giveItem'), itemId: z.number(), qty: z.number() }),
   z.object({ kind: z.literal('takeItem'), itemId: z.number(), qty: z.number() }),
   z.object({ kind: z.literal('startQuest'), questId: z.string() }),
-  z.object({ kind: z.literal('advanceQuest'), questId: z.string(), step: z.string() })
+  z.object({ kind: z.literal('advanceQuest'), questId: z.string(), step: z.string() }),
+  z.object({ kind: z.literal('goto'), place: z.string() })
 ]);
 
 const memoryEntrySchema = z.object({

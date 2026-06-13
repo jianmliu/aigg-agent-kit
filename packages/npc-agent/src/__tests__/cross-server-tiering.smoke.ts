@@ -35,7 +35,12 @@ async function main() {
   assert.equal(crossServerStable(W, 'npc:npc:酒剑仙:gcc', ON), false, 'GCC balance → local only');
   assert.equal(crossServerStable(rel('npc:酒剑仙', 'player:V'), 'relationship', ON), false, 'relationship → local only');
   assert.equal(crossServerStable(W, 'npc:npc:酒剑仙', undefined), false, 'untagged write → not shared');
-  console.log('  ✓ predicate truth table: identity+registry shared; balance+relationship local');
+  // economy-multiverse §2: ②层 world-scope registry 仍镜像(PR-B 跨服枚举不断);
+  // ②层 scoped per-npc 货物(rice)退出共享层(世界本地数据,不混进全局身份层)。
+  assert.equal(crossServerStable(W, 'w:pal:npcs', ON), true, 'scoped registry (w:<id>:npcs) → still shared');
+  assert.equal(crossServerStable(W, 'w:dwarf:npcs', ON), true, 'scoped registry of any world → shared');
+  assert.equal(crossServerStable(W, 'w:pal:npc:酒剑仙:rice', ON), false, '②层 scoped rice → exits shared tier (world-local)');
+  console.log('  ✓ predicate truth table: identity+registry(裸+scoped) shared; balance+relationship+②层货物 local');
 
   // ── 2. through TieredStore: a full create+activate+converse never over-writes ─
   const archive = new CountingArchive();
