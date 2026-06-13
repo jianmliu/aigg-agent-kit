@@ -27,7 +27,7 @@ import type { Activator } from './aigg/activation';
 import { applyTx, relKey, type WorldState, type WorldEvent, type WorldTx, type MarketState, type PredictionMarket } from './stf/world-stf';
 import { LlmInferenceOracle, type InferenceOracle } from './stf/inference-oracle';
 import type { SettlementLayer } from './stf/settlement-layer';
-import type { Effect, Attestation } from '@onchainpal/npc-agent';
+import type { Effect, Attestation, RelationshipState } from '@onchainpal/npc-agent';
 import {
   decayNeeds, satisfy, summarizeNeeds, urgent, DEFAULT_NEEDS_CONFIG,
   type NeedsState, type NeedsConfig
@@ -479,9 +479,14 @@ export class SharedWorld {
     const npcsInRoom = inRoom.filter((n) => n.id !== npcId);   // 在场者剔自己
     const persona = this.personaFor(rec);                      // P1: 不注入记忆 bundle
     persona.language = this.language;
+    // P2 需求驱动门控:本房间能回填哪些轴(= needsCfg.satisfy[room])。recharge/
+    // research/socialize 只在「该轴匮乏 AND 该房间能回该轴」时 available → 涌现闭环。
+    // 轴名不写死:动作迭代这张表,绝不 if(axis==='energy')(教训 B,三世界轴名不同)。
+    const roomSatisfies = this.needsCfg.satisfy[rec.room];
     return {
       npcId, persona, room: rec.room, npcsInRoom,
       balanceGcc, balanceSilver, needs, ricePrice,
+      ...(roomSatisfies ? { roomSatisfies } : {}),
       ...(opts?.marketRoom ? { marketRoom: opts.marketRoom } : {}),
       now
     };
@@ -638,7 +643,7 @@ export class SharedWorld {
   /** Append a THIRD-PERSON line to the NPC's system log (off-chain, debug):
    *  every say / move / pitch / gossip / dream the NPC lives, in order. Distinct
    *  from the first-person 夜记 — this is the objective transcript a dev reads. */
-  private async logEvent(npcId: string, kind: 'say' | 'move' | 'pitch' | 'gossip' | 'dream', text: string): Promise<void> {
+  private async logEvent(npcId: string, kind: 'say' | 'move' | 'pitch' | 'gossip' | 'dream' | 'recharge' | 'research' | 'socialize' | 'help' | 'steal', text: string): Promise<void> {
     try {
       const prev = (await this.getScoped<Array<{ ts: number; kind: string; text: string }>>(logKey(npcId))) ?? [];
       prev.push({ ts: Date.now(), kind, text });
@@ -825,6 +830,61 @@ export class SharedWorld {
     } catch { return false; }
   }
 
+  /**
+   * rememberTheft — the steal action's cognitive footprint (spec §5 P2 / §7 冲突).
+   * Writes into the VICTIM's corpus (never the thief's —防裸键泄漏, same discipline
+   * as overhear/pitch) the SAME episodic+faculty-belief pair the pitch loss writes
+   * (shared-world.ts pitch template), so NEXT time discernment(topic=thiefId,
+   * provenance) on the victim returns q>0 → the victim 识破/wary of the thief.
+   * Deterministic, zero-LLM (remember is a structured write). AWAITed so it lands
+   * before any later turn reads the corpus. No-op without a memory client (a bare
+   * InMemoryStore world → remember/discernment are unavailable; the 识破 path needs
+   * a real/fake memory client, 教训 A). `now` THREADED for replay-stable slugs.
+   */
+  async rememberTheft(victimId: string, thiefId: string, amount: number, now = 0): Promise<void> {
+    if (!this.memory) return;
+    const rec = await this.getNpc(victimId);
+    if (!rec) return;
+    const corpus = await this.memoryCorpus(victimId);
+    const evidence = await this.memoryEvidence(victimId);
+    const safe = (s: string) => s.replace(/[^a-zA-Z0-9_一-鿿-]/g, '_');
+    const epSlug = safe(`${thiefId}_theft_${now}`);
+    // 1) the episode — outcome:'loss', match 含 thief/trap so provenance scan hits.
+    await this.memory.remember({
+      slug: epSlug,
+      name: `被 ${thiefId} 行窃`, kind: 'episodic',
+      description: `${rec.name} 被 ${thiefId} 当场扒走 ${amount} 银两(亲历之失)`,
+      match: [thiefId, victimId, 'theft', 'trap'],
+      outcome: 'loss',
+    }, { corpus, evidence }).catch(() => {});
+    // 2) the FACULTY belief (asserted_by:'self') derived_from the loss → the v0.28
+    //    gate only reads kind:'belief' units, so discernment(provenance) bites NEXT time.
+    await this.memory.remember({
+      slug: safe(`wary_thief_${thiefId}_${now}`),
+      name: `提防 ${thiefId}(亲历被窃)`, kind: 'belief',
+      description: `${rec.name} 亲历过 ${thiefId} 的扒窃,认得这个贼,凡事多加提防`,
+      asserted_by: 'self',
+      derived_from: [epSlug],
+      match: [thiefId, 'thief', 'trap'],
+    }, { corpus, evidence }).catch(() => {});
+    void this.logEvent(victimId, 'steal', `被 ${thiefId.split(':').pop()} 扒走 ${amount} 银两,记下提防`);
+  }
+
+  /**
+   * discernAbout — read the per-turn discernment gate the action layer needs (the
+   * smoke's 识破 assert + a future steal-aware NPC). Routes the topic over the
+   * NPC's own corpus (private), provenance mode, θ gate. Returns null without a
+   * memory client. Pure-read against memory; no writes.
+   */
+  async discernAbout(npcId: string, topic: string): Promise<DiscernmentResult | null> {
+    if (!this.memory) return null;
+    try {
+      return await this.memory.discernment(topic, {
+        corpus: await this.memoryCorpus(npcId), mode: 'provenance', minConfidence: this.discernmentTheta,
+      });
+    } catch { return null; }
+  }
+
   // --- 余杭米市 (rice market) ------------------------------------------------
   // 米×银=k constant-product over the per-wei-tested STF `trade` path. The
   // mapping puts 银两 in the STF's `usdc` slot — the SAME GCC meter every
@@ -897,6 +957,27 @@ export class SharedWorld {
     const toBalance = await this.addSilver(toId, moved);
     this.emit([{ kind: 'silverTransferred', fromId, toId, amount: moved, fromBalance, toBalance } as WorldEvent], { now: Date.now() });
     return { ok: true, fromBalance, toBalance };
+  }
+
+  /**
+   * adjustAffinity — 调整好感 (the socialize/help/steal actions, spec §5 P2):
+   * a direct, deterministic write into the (npc × counterpart) RelationshipMemory,
+   * outside the talk() oracle path (no LLM, no GCC burn). socialize/help raise it,
+   * steal drops the victim's. Same applyDelta/addToRelIndex the talk leg uses, so
+   * snapshotState picks it up. `now` is THREADED from ctx.now (NOT Date.now()) for
+   * replay — transferSilver only stamps its emit, but a relationship's
+   * lastInteractionAt is durable state, so it must stay deterministic. Emits an
+   * affinityChanged WorldEvent (kind already exists) so the change reaches the
+   * tick-anchored stream. No-op on self.
+   */
+  async adjustAffinity(aId: string, bId: string, delta: number, tags: string[] = [], now = 0): Promise<RelationshipState> {
+    const rels = new RelationshipMemory(this.store, this.relPrefix());
+    if (aId === bId || delta === 0) return rels.get(aId, bId);
+    const rk = relKey(aId, bId);
+    const next = await rels.applyDelta(aId, bId, delta, tags, now);
+    await this.addToRelIndex(rk);
+    this.emit([{ kind: 'affinityChanged', npcId: aId, playerId: bId, delta, affinity: next.affinity } as WorldEvent], { now: now || Date.now() });
+    return next;
   }
 
   /**

@@ -33,6 +33,14 @@ export interface ActionContext {
   balanceGcc: number;
   balanceSilver: number;
   needs: NeedsState;
+  /**
+   * The satisfy table for the CURRENT room (= needsCfg.satisfy[room]): axis →
+   * amount/tick this room can refill. The emergence闭环 gate for
+   * recharge/research/socialize — an action may satisfy only the axes this room
+   * actually replenishes (饿了在咖啡馆才能选 recharge). Readonly snapshot, no axis
+   * name written anywhere downstream (轴名不写死, 教训 B). undefined ⇒ no room满足.
+   */
+  roomSatisfies?: Record<string, number>;
   /** spot 米价 (银两 per 米) — null until the market is seeded. */
   ricePrice: number | null;
   /** the market room id (trade gate) — undefined ⇒ no room constraint. */
@@ -66,7 +74,7 @@ export interface ActionSchema {
 }
 
 export interface WorldAction {
-  id: 'move' | 'say' | 'trade' | 'pitch' | 'give' | string;
+  id: 'move' | 'say' | 'trade' | 'pitch' | 'give' | 'recharge' | 'research' | 'socialize' | 'help' | 'steal' | string;
   /** PURE gate: reads only the assembled synchronous ctx (no IO/random/Date). */
   available(ctx: ActionContext): boolean;
   schema: ActionSchema;

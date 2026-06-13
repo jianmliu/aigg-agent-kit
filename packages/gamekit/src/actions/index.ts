@@ -7,3 +7,4 @@ export type {
   WorldAction, ActionContext, ActionResolveOut, ActionSchema, ChosenAction
 } from './registry';
 export { builtinActions } from './builtins';
+export type { BuiltinActionsOpts } from './builtins';
