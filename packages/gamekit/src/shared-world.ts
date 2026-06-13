@@ -204,6 +204,14 @@ export interface SharedWorldOptions {
    * 未注入 → 桥默认关闭(exchangeSilverForGcc 直接 reason:'exchange_disabled')。
    */
   exchange?: { enabled: boolean; rate: number; dailyCapSilver: number };
+  /**
+   * ②层 store key 的世界前缀(= WorldDef.id)。所有「世界本地层」key(市场/赌坊/
+   * 银两/米/需求/exchange:day/registry/rels/diary/log)经 wkey() 包成 `w:<worldId>:…`,
+   * 世界间互不可见、互不撞库(economy-multiverse spec §2)。默认 'pal' —— 与旧裸 key
+   * 兼容:worldId==='pal' 时对②层读做一次性惰性迁移(裸有值且 scoped 缺 → 搬运,见 getScoped)。
+   * ①层(GCC/tokenId/card/npc record)永不上前缀,随魂走、留全局命名空间。
+   */
+  worldId?: string;
 }
 
 export class SharedWorld {
@@ -225,6 +233,8 @@ export class SharedWorld {
   private readonly needsCfg: NeedsConfig;
   /** 兑换桥配置(单向 银两→GCC)——未注入 → 默认关闭、保守汇率。 */
   private readonly exchangeCfg: { enabled: boolean; rate: number; dailyCapSilver: number };
+  /** ②层 key 的世界前缀(= WorldDef.id);默认 'pal'(旧裸 key 兼容 + 惰性迁移触发)。 */
+  private readonly worldId: string;
   private readonly onEvents?: (events: WorldEvent[], ctx: { now: number; tx?: WorldTx }) => void;
   /**
    * Draft NPCs — created but never funded. RAM-only by design: no store write,
@@ -261,8 +271,57 @@ export class SharedWorld {
     this.needsCfg = opts.needs ?? DEFAULT_NEEDS_CONFIG;
     // 兑换桥默认保守(关闭、rate=100、每日上限 50);WorldDef.economy.exchange 显式开启。
     this.exchangeCfg = opts.exchange ?? { enabled: false, rate: 100, dailyCapSilver: 50 };
+    this.worldId = opts.worldId ?? 'pal';
     this.onEvents = opts.onEvents;
     this.rooms = opts.rooms ?? ['广场', '酒馆', '集市'];
+  }
+
+  // --- ②层 world-scope key 包装(economy-multiverse spec §2)------------------
+  /** ②层 store key → `w:<worldId>:…`。绝不动 Scope(='world'),仅包 key 字符串,与
+   *  crossServerStable 谓词同轴(谓词以 key 字符串做层路由)。①层 key 不经此(裸/全局)。
+   *  归一:旧的 `world:` 前缀(world:npcs / world:rels / world:market:rice)在 scope 化时
+   *  剥掉那个冗余段 —— spec §2 目标即 `w:<id>:npcs` / `w:<id>:market:rice`(非 w:<id>:world:…),
+   *  也让谓词正则 /^w:[^:]+:npcs$/ 命中 registry 镜像。npc:<id>:… 形原样带过。 */
+  private wkey(k: string): string {
+    const bare = k.startsWith('world:') ? k.slice('world:'.length) : k;
+    return `w:${this.worldId}:${bare}`;
+  }
+  /** 对 host 暴露的 wkey 原语 —— host 侧②层裸写点(npc:<id>:pal 渲染锚 / world:tickSeq
+   *  世界计数器)经此收口成 `w:<worldId>:…`,与 kit 内②层同前缀、随世界隔离。 */
+  wkeyOf(k: string): string { return this.wkey(k); }
+
+  /** 对 host 暴露的惰性迁移读(getScoped 的公共面)—— host 侧②层有**不可重建历史值**的
+   *  key(如 world:tickSeq:tick 序号回退会让 DSN blob `tick-N.json` 撞名污染 replay)
+   *  用它读取:pal 世界自动把既有裸值搬进 scoped(一次性、幂等);其余世界 scoped 直读,
+   *  绝不误吞共享储上别的世界的裸历史。可重建的值(渲染锚,seed 每启重写)不需要它。 */
+  async readScoped<T>(bareKey: string): Promise<T | null> { return this.getScoped<T>(bareKey); }
+
+  /**
+   * ②层 relationship 内容前缀(economy-multiverse spec §2)。RelationshipMemory 活在
+   * `npc-player` Scope(非 `world`),wkey() 够不着 —— 改用 **内容 key 前缀** 把世界维度
+   * 折进 REL_KEY。'pal'(旧/唯一历史世界)返 '' → 沿用裸 `relationship` key,零迁移继承
+   * 既有亲密度;其余世界返 `w:<worldId>:` → 同 store 双世界同 npcId+playerId 互不撞库。
+   * Scope 仍是 npc-player(crossServerStable 对它返 false)→ 热关系态照旧留本地、绝不逐回合
+   * 镜像进链上共享层,与 PR-B 一致。 */
+  private relPrefix(): string {
+    return this.worldId === 'pal' ? '' : `w:${this.worldId}:`;
+  }
+
+  /**
+   * ②层惰性迁移读(economy-multiverse spec §5 M1):scoped 命中优先;仅 worldId==='pal'
+   * 时 scoped 缺、裸有 → 一次性搬运(写回 scoped,不带 ONCHAIN,与 backfillSilver 同模式),
+   * 否则直读 scoped。幂等:scoped 命中即返,绝不再看裸 key;裸 key 不清除(非破坏性兜底)。
+   * dwarf/cragheart/tiny 等无裸历史,直接 scoped 直读。
+   */
+  private async getScoped<T>(bareKey: string): Promise<T | null> {
+    const wk = this.wkey(bareKey);
+    const cur = await this.store.get<T>(W, wk);
+    if (cur != null) return cur;                          // scoped 已有 → 命中优先,不回看裸
+    if (this.worldId !== 'pal') return null;              // 非 pal 世界无裸历史
+    const legacy = await this.store.get<T>(W, bareKey);   // 旧裸 key
+    if (legacy == null) return null;
+    await this.store.set(W, wk, legacy);                  // 搬运(无 ONCHAIN — 迁移是本地正名,非业务事件)
+    return legacy;
   }
 
   // --- authoring -----------------------------------------------------------
@@ -286,8 +345,8 @@ export class SharedWorld {
     const rec: NpcRecord = { id, name: input.name, owner: input.owner, room, background: input.background.trim(), status: 'active' };
     await this.store.set(W, npcKey(id), rec, ONCHAIN);
     await this.store.set(W, gccKey(id), input.startGcc ?? 0, ONCHAIN);
-    // 银两 = off-chain 游戏货币(无 ONCHAIN);默认底 10,让新 NPC 开局能买米。
-    await this.store.set(W, silverKey(id), input.startSilver ?? 10);
+    // 银两 = off-chain 游戏货币(无 ONCHAIN);默认底 10,让新 NPC 开局能买米。②层 → wkey。
+    await this.store.set(W, this.wkey(silverKey(id)), input.startSilver ?? 10);
     await this.addToRegistry(id);
     void this.seedGoal(rec); // fire-and-forget: give the NPC a planning seed (kind=goal) so plan() has something to plan toward
     this.emit([{ kind: 'npcCreated', npcId: id, status: 'active' }], { now: Date.now() });
@@ -350,11 +409,11 @@ export class SharedWorld {
     try {
       const rec = await this.getNpc(npcId);
       if (!rec) return null;
-      const prev = (await this.store.get<NeedsState>(W, needsKey(npcId))) ?? {};
+      const prev = (await this.getScoped<NeedsState>(needsKey(npcId))) ?? {};
       let next = decayNeeds(prev, this.needsCfg.axes, dt);     // 缺轴以 100 起算
       const sat = this.needsCfg.satisfy[rec.room];             // 所在房间满足表
       if (sat) for (const [axis, amt] of Object.entries(sat)) next = satisfy(next, axis, amt);
-      await this.store.set(W, needsKey(npcId), next);          // ← 不带 ONCHAIN
+      await this.store.set(W, this.wkey(needsKey(npcId)), next); // ← ②层 wkey,不带 ONCHAIN
       // 最紧迫未满足需求 → seed goal(spec B,轻、失败静默;纯 store 世界无 memory 时无操作)
       const top = urgent(next, this.needsCfg.axes)[0];
       if (top && this.memory) {
@@ -366,15 +425,15 @@ export class SharedWorld {
 
   /** 读当前需求(smoke / talk 注入用)。 */
   async needsOf(npcId: string): Promise<NeedsState> {
-    return (await this.store.get<NeedsState>(W, needsKey(npcId))) ?? {};
+    return (await this.getScoped<NeedsState>(needsKey(npcId))) ?? {};
   }
 
   /** 显式满足一轴(进食/喝茶等「动作」回填):读 needs → satisfy → 写回 store(不带 ONCHAIN)。
    *  与 tradeRice 成对——消费抽走市场供给的同时回填食轴,否则下一拍仍匮乏、无限买空银两。 */
   async satisfyNeed(npcId: string, axis: string, amount: number): Promise<NeedsState> {
-    const prev = (await this.store.get<NeedsState>(W, needsKey(npcId))) ?? {};
+    const prev = (await this.getScoped<NeedsState>(needsKey(npcId))) ?? {};
     const next = satisfy(prev, axis, amount);
-    await this.store.set(W, needsKey(npcId), next);
+    await this.store.set(W, this.wkey(needsKey(npcId)), next);
     return next;
   }
 
@@ -481,9 +540,9 @@ export class SharedWorld {
           // typed memory unit (aigg-memory's consolidate gates non-evidence units
           // out, so /memory/remember returns 200 but never persists a journal).
           try {
-            const prev = (await this.store.get<Array<{ date: string; text: string }>>(W, diaryKey(npcId))) ?? [];
+            const prev = (await this.getScoped<Array<{ date: string; text: string }>>(diaryKey(npcId))) ?? [];
             prev.push({ date: new Date(now || Date.now()).toISOString(), text: diary });
-            await this.store.set(W, diaryKey(npcId), prev.slice(-30));
+            await this.store.set(W, this.wkey(diaryKey(npcId)), prev.slice(-30));
           } catch { /* never blocks the dream */ }
         }
       }
@@ -514,9 +573,9 @@ export class SharedWorld {
    *  from the first-person 夜记 — this is the objective transcript a dev reads. */
   private async logEvent(npcId: string, kind: 'say' | 'move' | 'pitch' | 'gossip' | 'dream', text: string): Promise<void> {
     try {
-      const prev = (await this.store.get<Array<{ ts: number; kind: string; text: string }>>(W, logKey(npcId))) ?? [];
+      const prev = (await this.getScoped<Array<{ ts: number; kind: string; text: string }>>(logKey(npcId))) ?? [];
       prev.push({ ts: Date.now(), kind, text });
-      await this.store.set(W, logKey(npcId), prev.slice(-200));
+      await this.store.set(W, this.wkey(logKey(npcId)), prev.slice(-200));
     } catch { /* logging never blocks gameplay */ }
   }
 
@@ -537,8 +596,8 @@ export class SharedWorld {
     const empty = { npcId, name, track: { beliefs: 0, journals: 0, episodes: 0, skill: 0 }, beliefs: [], diary: [], log: [] };
     try {
       // 夜记 + 系统日志 from pal's own store; 心得/阅历 (beliefs/episodes) from typed memory.
-      const diary = ((await this.store.get<Array<{ date: string; text: string }>>(W, diaryKey(npcId))) ?? []).slice(-12);
-      const log = ((await this.store.get<Array<{ ts: number; kind: string; text: string }>>(W, logKey(npcId))) ?? []).slice(-60);
+      const diary = ((await this.getScoped<Array<{ date: string; text: string }>>(diaryKey(npcId))) ?? []).slice(-12);
+      const log = ((await this.getScoped<Array<{ ts: number; kind: string; text: string }>>(logKey(npcId))) ?? []).slice(-60);
       let beliefs = 0, episodes = 0;
       const beliefNames: string[] = [];
       if (this.memory) {
@@ -707,7 +766,7 @@ export class SharedWorld {
 
   async initRiceMarket(input: { rice: number; silver: number }): Promise<MarketState> {
     const m: MarketState = { riceReserve: input.rice, silverReserve: input.silver, supply: 0 };
-    await this.store.set(W, RICE_MARKET, m, ONCHAIN);
+    await this.store.set(W, this.wkey(RICE_MARKET), m, ONCHAIN);
     const now = Date.now();
     this.emit(
       [{ kind: 'marketInit', riceReserve: m.riceReserve, silverReserve: m.silverReserve, supply: 0 } as WorldEvent],
@@ -717,7 +776,8 @@ export class SharedWorld {
   }
 
   async riceMarket(): Promise<MarketState | null> {
-    const m = await this.store.get<MarketState>(W, RICE_MARKET);
+    // ②层惰性迁移(wkey 维度)先行,再跑「经济分离命名」的值内 schema 归一(两层正交叠加)。
+    const m = await this.getScoped<MarketState>(RICE_MARKET);
     if (!m) return null;
     // 惰性迁移:旧 store 写的是 {gccReserve,usdcReserve,supply}(经济分离前的命名),
     // 正名后 m.riceReserve 读旧数据 = undefined → NaN。一次读即归一为新形(米储/银储)。
@@ -735,13 +795,13 @@ export class SharedWorld {
   }
 
   async riceHolding(npcId: string): Promise<number> {
-    return (await this.store.get<number>(W, riceKey(npcId))) ?? 0;
+    return (await this.getScoped<number>(riceKey(npcId))) ?? 0;
   }
 
   /** host-level provisioning (granary endowment) — like startGcc, not a trade. */
   async grantRice(npcId: string, amount: number): Promise<number> {
     const next = (await this.riceHolding(npcId)) + amount;
-    await this.store.set(W, riceKey(npcId), next, ONCHAIN);
+    await this.store.set(W, this.wkey(riceKey(npcId)), next, ONCHAIN);
     return next;
   }
 
@@ -758,9 +818,9 @@ export class SharedWorld {
    * 故交易归零的合法穷 NPC 不会被反复回填,seed 跨重启幂等。返回是否实际回填。
    */
   async backfillSilver(npcId: string, floor = 10): Promise<boolean> {
-    const present = await this.store.get<number>(W, silverKey(npcId));
+    const present = await this.getScoped<number>(silverKey(npcId));
     if (present != null) return false;            // 已有 silver 账(含合法的 0)→ 不动
-    await this.store.set(W, silverKey(npcId), Math.max(0, floor));
+    await this.store.set(W, this.wkey(silverKey(npcId)), Math.max(0, floor));
     return true;
   }
 
@@ -793,10 +853,10 @@ export class SharedWorld {
     }
     const newRice = applied.balances[input.npcId];
     const newSilver = (applied.usdc ?? {})[input.npcId] ?? silver;
-    await this.store.set(W, riceKey(input.npcId), newRice, ONCHAIN);
-    // 银两写回 off-chain 账(silverKey,无 ONCHAIN)—— 游戏货币永不上链。
-    await this.store.set(W, silverKey(input.npcId), newSilver);
-    await this.store.set(W, RICE_MARKET, applied.market!, ONCHAIN);
+    await this.store.set(W, this.wkey(riceKey(input.npcId)), newRice, ONCHAIN);
+    // 银两写回 off-chain 账(silverKey,无 ONCHAIN)—— 游戏货币永不上链。②层 → wkey。
+    await this.store.set(W, this.wkey(silverKey(input.npcId)), newSilver);
+    await this.store.set(W, this.wkey(RICE_MARKET), applied.market!, ONCHAIN);
     this.emit(events, { now, tx });
     const traded = events.find((e) => (e as { kind?: string }).kind === 'traded') as { out: number; price: number };
     return { ok: true, out: traded.out, price: traded.price, balanceSilver: newSilver, rice: newRice };
@@ -809,7 +869,7 @@ export class SharedWorld {
   // full refund. All via the per-wei-tested STF openMarket/bet/resolveMarket.
 
   async riceBets(): Promise<Record<string, PredictionMarket>> {
-    return (await this.store.get<Record<string, PredictionMarket>>(W, RICE_BETS)) ?? {};
+    return (await this.getScoped<Record<string, PredictionMarket>>(RICE_BETS)) ?? {};
   }
 
   async openRiceBet(input: { marketId: string; threshold: number }): Promise<{ ok: boolean; reason?: string }> {
@@ -820,7 +880,7 @@ export class SharedWorld {
     const { state: applied, events } = applyTx(slice, tx, new DefaultGameRules(() => undefined));
     const rejected = events.find((e) => (e as { kind?: string }).kind === 'rejected') as { reason?: string } | undefined;
     if (rejected) return { ok: false, reason: rejected.reason };
-    await this.store.set(W, RICE_BETS, applied.markets, ONCHAIN);
+    await this.store.set(W, this.wkey(RICE_BETS), applied.markets, ONCHAIN);
     this.emit(events, { now, tx });
     return { ok: true };
   }
@@ -843,8 +903,8 @@ export class SharedWorld {
     const rejected = events.find((e) => (e as { kind?: string }).kind === 'rejected') as { reason?: string } | undefined;
     const m = (applied.markets ?? {})[input.marketId];
     if (rejected) return { ok: false, reason: rejected.reason, balanceSilver: silver, yesPool: m?.yesPool ?? 0, noPool: m?.noPool ?? 0 };
-    await this.store.set(W, silverKey(input.npcId), (applied.usdc ?? {})[input.npcId] ?? silver);
-    await this.store.set(W, RICE_BETS, applied.markets, ONCHAIN);
+    await this.store.set(W, this.wkey(silverKey(input.npcId)), (applied.usdc ?? {})[input.npcId] ?? silver);
+    await this.store.set(W, this.wkey(RICE_BETS), applied.markets, ONCHAIN);
     this.emit(events, { now, tx });
     return { ok: true, balanceSilver: (applied.usdc ?? {})[input.npcId] ?? silver, yesPool: m.yesPool, noPool: m.noPool };
   }
@@ -869,9 +929,9 @@ export class SharedWorld {
     const rejected = events.find((e) => (e as { kind?: string }).kind === 'rejected') as { reason?: string } | undefined;
     if (rejected) return { ok: false, reason: rejected.reason };
     for (const id of stakers) {
-      await this.store.set(W, silverKey(id), (applied.usdc ?? {})[id] ?? usdc[id]);
+      await this.store.set(W, this.wkey(silverKey(id)), (applied.usdc ?? {})[id] ?? usdc[id]);
     }
-    await this.store.set(W, RICE_BETS, applied.markets, ONCHAIN);
+    await this.store.set(W, this.wkey(RICE_BETS), applied.markets, ONCHAIN);
     this.emit(events, { now, tx });
     const resolved = events.find((e) => (e as { kind?: string }).kind === 'marketResolved') as { outcome: 'YES' | 'NO'; price: number; totalPool: number; payouts: number };
     return { ok: true, outcome: resolved.outcome, price: resolved.price, totalPool: resolved.totalPool, payouts: resolved.payouts };
@@ -931,7 +991,7 @@ export class SharedWorld {
    *  **永不**带 ONCHAIN。私有:对外发银两走 grantSilver,内部转账(交易/兑换)走此。 */
   private async addSilver(npcId: string, delta: number): Promise<number> {
     const bal = Math.max(0, (await this.balanceSilver(npcId)) + delta);
-    await this.store.set(W, silverKey(npcId), bal);
+    await this.store.set(W, this.wkey(silverKey(npcId)), bal);
     return bal;
   }
 
@@ -950,10 +1010,11 @@ export class SharedWorld {
     if (!cfg.enabled) return fail('exchange_disabled');
     if (!(input.silver > 0)) return fail('bad_amount');
     if (input.silver > balSilver) return fail('insufficient_silver');
-    // 每日上限:按 store 里记录的当日累计判定(day = floor(now / 一天))。
-    const dayKey = `npc:${input.npcId}:exchange:day`;
+    // 每日上限:按 store 里记录的当日累计判定(day = floor(now / 一天))。②层 → wkey。
+    const dayKeyBare = `npc:${input.npcId}:exchange:day`;
+    const dayKey = this.wkey(dayKeyBare);
     const today = Math.floor(Date.now() / 86_400_000);
-    const rec = (await this.store.get<{ day: number; used: number }>(W, dayKey)) ?? { day: today, used: 0 };
+    const rec = (await this.getScoped<{ day: number; used: number }>(dayKeyBare)) ?? { day: today, used: 0 };
     const usedToday = rec.day === today ? rec.used : 0;
     if (usedToday + input.silver > cfg.dailyCapSilver) return fail('daily_cap');
     // 扣银两(off-chain 销毁)+ 加 GCC(链上铸入,经 addGcc)。
@@ -981,13 +1042,13 @@ export class SharedWorld {
   }
 
   private async addToRegistry(id: string): Promise<void> {
-    const reg = (await this.store.get<string[]>(W, REGISTRY)) ?? [];
-    if (!reg.includes(id)) { reg.push(id); await this.store.set(W, REGISTRY, reg, ONCHAIN); }
+    const reg = (await this.getScoped<string[]>(REGISTRY)) ?? [];
+    if (!reg.includes(id)) { reg.push(id); await this.store.set(W, this.wkey(REGISTRY), reg, ONCHAIN); }
   }
 
   private async addToRelIndex(rk: string): Promise<void> {
-    const idx = (await this.store.get<string[]>(W, REL_INDEX)) ?? [];
-    if (!idx.includes(rk)) { idx.push(rk); await this.store.set(W, REL_INDEX, idx, ONCHAIN); }
+    const idx = (await this.getScoped<string[]>(REL_INDEX)) ?? [];
+    if (!idx.includes(rk)) { idx.push(rk); await this.store.set(W, this.wkey(REL_INDEX), idx, ONCHAIN); }
   }
 
   /** fire-and-forget event emission — a throwing handler never breaks gameplay. */
@@ -1004,7 +1065,7 @@ export class SharedWorld {
    * onEvents). Draft NPCs (RAM-only, invisible) are excluded by design.
    */
   async snapshotState(): Promise<WorldState> {
-    const registry = (await this.store.get<string[]>(W, REGISTRY)) ?? [];
+    const registry = (await this.getScoped<string[]>(REGISTRY)) ?? [];
     const npcs: WorldState['npcs'] = {};
     const balances: WorldState['balances'] = {};
     for (const id of registry) {
@@ -1014,8 +1075,8 @@ export class SharedWorld {
       balances[id] = await this.balanceGcc(id);
     }
     const relationships: WorldState['relationships'] = {};
-    const rels = new RelationshipMemory(this.store);
-    for (const rk of (await this.store.get<string[]>(W, REL_INDEX)) ?? []) {
+    const rels = new RelationshipMemory(this.store, this.relPrefix());
+    for (const rk of (await this.getScoped<string[]>(REL_INDEX)) ?? []) {
       const sep = rk.indexOf('|');
       if (sep <= 0) continue;
       relationships[rk] = await rels.get(rk.slice(0, sep), rk.slice(sep + 1));
@@ -1042,14 +1103,14 @@ export class SharedWorld {
   }
   /** 读银两(off-chain 游戏货币)—— 永远只在 store,绝不读 settlementLayer/balances 链上 rail。 */
   async balanceSilver(npcId: string): Promise<number> {
-    return (await this.store.get<number>(W, silverKey(npcId))) ?? 0;
+    return (await this.getScoped<number>(silverKey(npcId))) ?? 0;
   }
   /**
    * List NPCs. Persisted (activated) NPCs are visible to everyone; RAM drafts
    * are visible ONLY to their owner (pass `viewerId`). No viewer → activated only.
    */
   async listNpcs(viewerId?: string): Promise<NpcSummary[]> {
-    const reg = (await this.store.get<string[]>(W, REGISTRY)) ?? [];
+    const reg = (await this.getScoped<string[]>(REGISTRY)) ?? [];
     const out: NpcSummary[] = [];
     for (const id of reg) {
       const r = await this.getNpc(id);
@@ -1173,7 +1234,7 @@ export class SharedWorld {
     } catch { /* needs 不可用 — 照常对话 */ }
 
     const persona = this.personaFor(rec, memoryBundle);
-    const relationships = new RelationshipMemory(this.store);
+    const relationships = new RelationshipMemory(this.store, this.relPrefix());
     const balance0 = await this.balanceGcc(input.npcId);
     const beforeRel = await relationships.get(input.npcId, input.visitorId);
     const before = beforeRel.affinity;
