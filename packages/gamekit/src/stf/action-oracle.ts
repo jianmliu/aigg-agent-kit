@@ -11,7 +11,7 @@
  * ScriptedActionOracle lets smokes pin the choice (fixed/rotating) so the
  * 选→校验→resolve→STF chain runs with zero LLM, fully replayable (教训 A/E).
  */
-import { parseActionChoice } from '@onchainpal/npc-agent';
+import { parseActionChoice, summarizeNeeds } from '@onchainpal/npc-agent';
 import type { InferenceProvider, InferenceResult, Attestation } from '@onchainpal/npc-agent';
 import type { ActionContext, ChosenAction } from '../actions/registry';
 
@@ -51,6 +51,10 @@ function buildChoicePrompt(input: ActionOracleInput): { system: string; prompt: 
   lines.push(en
     ? `Your silver: ${ctx.balanceSilver}, GCC: ${ctx.balanceGcc}${ctx.ricePrice != null ? `, rice price: ${ctx.ricePrice}` : ''}.`
     : `你有银两 ${ctx.balanceSilver},灵力(GCC)${ctx.balanceGcc}${ctx.ricePrice != null ? `,米价 ${ctx.ricePrice}` : ''}。`);
+  // P2 需求驱动:把当前匮乏的需求摘成一行,让 LLM「看见」需求再选行动(饿了选 recharge)。
+  // 全足 → summarizeNeeds 返 '' → 不注入(P1 prompt 无需求行,故开关关时此行不出现)。
+  const needsLine = summarizeNeeds(ctx.needs, undefined, 30, en ? 'en' : 'zh');
+  if (needsLine) lines.push(en ? `Right now you are ${needsLine}.` : `你现在${needsLine}。`);
   lines.push('');
   lines.push(en ? 'Available actions this turn:' : '本回合可选的行动:');
   lines.push(menu);
