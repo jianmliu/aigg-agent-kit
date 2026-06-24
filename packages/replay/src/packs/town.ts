@@ -1,4 +1,4 @@
-import type { ReplayPack, Event } from '../schema';
+import type { ReplayPack, Event, ValidateCtx } from '../schema';
 
 export const TOWN_PACK_ID = 'town@0';
 
@@ -6,7 +6,7 @@ export const TOWN_PACK_ID = 'town@0';
 export const townPack: ReplayPack = {
   id: TOWN_PACK_ID,
   eventKinds: ['town.talk', 'town.pitch', 'town.refuse', 'town.anchor'],
-  validateEvent(ev: Event): string[] {
+  validateEvent(ev: Event, _ctx: ValidateCtx): string[] {
     const errs: string[] = [];
     const d = ev.data ?? {};
     if (ev.kind === 'town.talk' && d.verified === true) {

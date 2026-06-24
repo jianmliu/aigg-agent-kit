@@ -8,7 +8,7 @@ import { townPack, TOWN_PACK_ID } from '../packs/town';
 
 const ctx: ValidateCtx = {
   header: {} as RunHeader,
-  entityIds: new Set(['npc:abao']),
+  entityIds: new Set(['npc:abao']), // pre-seeded for future actor-ref checks
 };
 
 function errs(ev: Event): string[] {
@@ -31,6 +31,9 @@ assert.ok(errs({ kind: 'town.refuse', data: { protected: true } }).length > 0, '
 // town.anchor must carry a beliefRoot
 assert.equal(errs({ kind: 'town.anchor', data: { beliefRoot: '0xabc' } }).length, 0, 'anchor with root ok');
 assert.ok(errs({ kind: 'town.anchor', data: {} }).length > 0, 'anchor without root fails');
+
+// town.pitch is declared but carries no invariants yet
+assert.equal(errs({ kind: 'town.pitch', data: {} }).length, 0, 'town.pitch has no constraints yet');
 
 // panel descriptor present
 assert.equal(townPack.viewer?.panels[0].render, 'town-ledger');
