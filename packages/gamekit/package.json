@@ -29,7 +29,8 @@
     "test:language": "tsx src/__tests__/language.smoke.ts",
     "test:action-loop": "tsx src/__tests__/action-loop.smoke.ts",
     "test:action-loop-p2": "tsx src/__tests__/action-loop-p2.smoke.ts",
-    "test:resolve": "tsx src/__tests__/resolve-battle.smoke.ts"
+    "test:resolve": "tsx src/__tests__/resolve-battle.smoke.ts",
+    "test:derive": "tsx src/__tests__/derive-combat-stats.smoke.ts"
   },
   "dependencies": {
     "@onchainpal/npc-agent": "workspace:*",
