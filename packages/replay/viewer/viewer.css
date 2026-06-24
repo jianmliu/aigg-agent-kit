@@ -1,0 +1,20 @@
+:root { --bg:#120d0a; --panel:#1d1611; --ink:#f3e7d3; --dim:#a89478; --seal:#39d98a; --loss:#e0556e; --line:#3a2c20; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.5 ui-sans-serif,system-ui,"Noto Sans CJK SC",sans-serif; }
+header { padding:12px 16px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; }
+header h1 { font-size:16px; margin:0; }
+header .muted { color:var(--dim); font-size:12px; }
+#file { margin-left:auto; }
+main { display:grid; grid-template-columns:280px 1fr; gap:0; height:calc(100vh - 53px); }
+#timeline { border-right:1px solid var(--line); overflow:auto; padding:8px; }
+#timeline .ev { padding:6px 8px; border-bottom:1px solid var(--line); font-size:12px; }
+#timeline .ev .k { color:var(--dim); }
+#panels { overflow:auto; padding:16px; display:flex; flex-direction:column; gap:16px; }
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+.panel h2 { margin:0 0 10px; font-size:13px; letter-spacing:.04em; text-transform:uppercase; color:var(--dim); }
+.npc { display:flex; gap:10px; align-items:baseline; padding:4px 0; }
+.npc .bal { margin-left:auto; }
+.seal { color:var(--seal); }
+.belief { border-left:3px solid var(--seal); padding:6px 10px; margin:8px 0; background:#17110c; }
+.belief .root { color:var(--dim); font-size:11px; word-break:break-all; }
+.notice { color:var(--dim); font-style:italic; }
