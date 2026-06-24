@@ -35,6 +35,9 @@ export interface Recorder {
 }
 
 export function createRecorder(opts: RecorderOpts): Recorder {
+  if (!opts.write && !opts.path) {
+    throw new Error('recorder: supply either opts.path or opts.write');
+  }
   const registry = opts.registry ?? defaultRegistry();
   const allowed = registry.eventKinds([CORE_PACK_ID, ...opts.packs]);
 
@@ -51,10 +54,12 @@ export function createRecorder(opts: RecorderOpts): Recorder {
   const writeObj = (o: unknown) => sink(JSON.stringify(o));
 
   let cur: Tick | null = null;
+  let closed = false;
   const flush = () => { if (cur) { writeObj(cur); cur = null; } };
 
   return {
     run(init) {
+      if (closed) throw new Error('recorder: already closed');
       const header: RunHeader = {
         kind: 'run', schema: SCHEMA_ID,
         runId: init.runId, title: init.title, createdAt: init.createdAt ?? 0,
@@ -62,7 +67,7 @@ export function createRecorder(opts: RecorderOpts): Recorder {
       };
       writeObj(header);
     },
-    tick(t) { flush(); cur = { kind: 'tick', t, events: [] }; },
+    tick(t) { if (closed) throw new Error('recorder: already closed'); flush(); cur = { kind: 'tick', t, events: [] }; },
     event(kind, ev = {}) {
       if (!allowed.has(kind)) {
         throw new Error(`recorder: undeclared event kind "${kind}" (declared packs: ${opts.packs.join(',') || '(none)'})`);
@@ -74,7 +79,7 @@ export function createRecorder(opts: RecorderOpts): Recorder {
       if (!cur) throw new Error('recorder: metrics() called before tick()');
       cur.metrics = { ...(cur.metrics ?? {}), ...m };
     },
-    summary(s) { flush(); writeObj({ kind: 'summary', ...s }); },
-    close() { flush(); stream?.end(); },
+    summary(s) { if (closed) throw new Error('recorder: already closed'); flush(); writeObj({ kind: 'summary', ...s }); },
+    close() { flush(); stream?.end(); closed = true; },
   };
 }
