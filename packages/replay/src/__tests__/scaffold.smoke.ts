@@ -3,7 +3,7 @@
  * Run: pnpm --filter @onchainpal/replay test:scaffold
  */
 import assert from 'node:assert/strict';
-import { PACKAGE } from '../index';
+import { SCHEMA_ID } from '../index';
 
-assert.equal(PACKAGE, '@onchainpal/replay', 'barrel resolves');
+assert.equal(SCHEMA_ID, 'replay@1', 'barrel resolves');
 console.log('ALL SCAFFOLD SMOKE TESTS PASSED ✅');
