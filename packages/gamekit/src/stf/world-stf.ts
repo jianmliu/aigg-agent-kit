@@ -16,6 +16,11 @@
 import { createHash } from 'node:crypto';
 import type { Effect, GameRules, RuleContext, RelationshipState } from '@onchainpal/npc-agent';
 import type { NpcRecord } from '../shared-world';
+import { resolveBattle } from './resolve-battle';
+import { PLACEHOLDER_RESTRAINT, type CombatStats, type Combatant, type BattleRound } from './combat-types';
+
+/** 重伤期长度(tick)。TODO(owner): 调参。 */
+export const WOUND_TICKS = 3;
 
 /** A persisted NPC in world state — identity + lifecycle status. */
 export type StfNpc = NpcRecord & { status: 'draft' | 'active' };
@@ -31,6 +36,8 @@ export interface WorldState {
   relationships: Record<string, RelationshipState>;
   /** `${playerId}|${flag}` → value. */
   flags: Record<string, number>;
+  /** npcId → 战斗属性(仅 NPC 持久;妖怪临时不入状态)。 */
+  combat?: Record<string, CombatStats>;
   /** per-agent USDC balance (pump-town economy; absent in pure-MUD worlds). */
   usdc?: Record<string, number>;
   /** the constant-product AMM pool (pump-town; absent until `initMarket`). */
@@ -76,6 +83,7 @@ export type WorldTx =
    * `gccDelta` = additive luck (balance += d, d<0 = bad). Both optional/composable.
    */
   | { type: 'luckEvent'; npcId: string; gccDelta?: number; gccFactor?: number; affinityDelta?: number; playerId?: string; label?: string; now: number }
+  | { type: 'battle'; attackerId: string; defender: Combatant; seed: number; now: number }
   // ── pump-town economic core (the high-stake, on-chain-executed subset) ──────
   /** Seed the constant-product AMM pool + initial supply (genesis-ish). */
   | { type: 'initMarket'; riceReserve: number; silverReserve: number; supply?: number }
@@ -111,6 +119,9 @@ export type WorldEvent =
   | { kind: 'burned'; npcId: string; gccCost: number; balanceGcc: number }
   /** an exogenous luck shock; `gccAfter - gccBefore` IS the realized luck score (exact, auditable). */
   | { kind: 'luck'; npcId: string; label?: string; gccBefore: number; gccAfter: number }
+  | { kind: 'battle'; attackerId: string; defenderRef: string; rounds: BattleRound[];
+      winnerId: string; loserId: string; woundedUntil: number;
+      affinity?: { ab: number; ba: number } }
   | { kind: 'marketInit'; riceReserve: number; silverReserve: number; supply: number }
   | { kind: 'traded'; agentId: string; side: 'buy' | 'sell'; amountIn: number; out: number; price: number; riceReserve: number; silverReserve: number }
   | { kind: 'dividend'; perGcc: number; totalPaid: number }
@@ -224,6 +235,50 @@ export function applyTx(prev: WorldState, tx: WorldTx, rules: GameRules): { stat
         state.relationships[key] = { ...rel, affinity: rel.affinity + tx.affinityDelta, lastInteractionAt: tx.now };
       }
       events.push({ kind: 'luck', npcId: tx.npcId, label: tx.label, gccBefore: before, gccAfter: after });
+      break;
+    }
+    case 'battle': {
+      const attacker = state.npcs[tx.attackerId];
+      const aStats = (state.combat ?? {})[tx.attackerId];
+      if (!attacker || !aStats) { events.push({ kind: 'rejected', reason: 'no_attacker', tx }); break; }
+
+      // 解析防御方 id + 属性
+      let defRef: string; let dStats: CombatStats; let defNpcId: string | null;
+      if (tx.defender.kind === 'npc') {
+        const dS = (state.combat ?? {})[tx.defender.id];
+        if (!state.npcs[tx.defender.id] || !dS) { events.push({ kind: 'rejected', reason: 'no_defender', tx }); break; }
+        defRef = tx.defender.id; dStats = dS; defNpcId = tx.defender.id;
+      } else {
+        defRef = `monster:${tx.defender.species}`; dStats = tx.defender.stats; defNpcId = null;
+      }
+
+      const result = resolveBattle({ id: tx.attackerId, stats: aStats }, { id: defRef, stats: dStats }, tx.seed, PLACEHOLDER_RESTRAINT);
+
+      // 写回 NPC 战斗者的终局 HP;败者(若为 NPC)挂重伤
+      state.combat ??= {};
+      const lastHp = (id: string) => [...result.rounds].reverse().find(r => r.targetId === id)?.targetHpAfter;
+      for (const id of [tx.attackerId, defNpcId].filter((x): x is string => !!x)) {
+        const s = state.combat[id]; if (!s) continue;
+        const fh = lastHp(id) ?? s.hp;
+        state.combat[id] = { ...s, hp: Math.max(0, fh), ...(id === result.loserId ? { woundedUntil: tx.now + WOUND_TICKS } : {}) };
+      }
+
+      // NPC↔NPC 世仇(妖怪非社交,跳过)
+      let affinity: { ab: number; ba: number } | undefined;
+      if (defNpcId) {
+        const ak = relKey(tx.attackerId, defNpcId), bk = relKey(defNpcId, tx.attackerId);
+        const ra = state.relationships[ak] ?? { affinity: 0, tags: [] };
+        const rb = state.relationships[bk] ?? { affinity: 0, tags: [] };
+        const dA = result.winnerId === tx.attackerId ? -2 : -6;   // 输的一方记更深的仇。TODO(owner): 调参
+        const dB = result.winnerId === defNpcId ? -2 : -6;
+        state.relationships[ak] = { ...ra, affinity: ra.affinity + dA, lastInteractionAt: tx.now };
+        state.relationships[bk] = { ...rb, affinity: rb.affinity + dB, lastInteractionAt: tx.now };
+        affinity = { ab: state.relationships[ak].affinity, ba: state.relationships[bk].affinity };
+      }
+
+      events.push({ kind: 'battle', attackerId: tx.attackerId, defenderRef: defRef, rounds: result.rounds,
+        winnerId: result.winnerId, loserId: result.loserId, woundedUntil: tx.now + WOUND_TICKS,
+        ...(affinity ? { affinity } : {}) });
       break;
     }
     case 'initMarket': {
