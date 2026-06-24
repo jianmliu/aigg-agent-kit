@@ -255,7 +255,7 @@ export function applyTx(prev: WorldState, tx: WorldTx, rules: GameRules): { stat
       const result = resolveBattle({ id: tx.attackerId, stats: aStats }, { id: defRef, stats: dStats }, tx.seed, PLACEHOLDER_RESTRAINT);
 
       // 写回 NPC 战斗者的终局 HP;败者(若为 NPC)挂重伤
-      state.combat ??= {};
+      state.combat ??= {}; // map exists (attacker had stats); this narrows the optional for the writeback below
       const lastHp = (id: string) => [...result.rounds].reverse().find(r => r.targetId === id)?.targetHpAfter;
       for (const id of [tx.attackerId, defNpcId].filter((x): x is string => !!x)) {
         const s = state.combat[id]; if (!s) continue;

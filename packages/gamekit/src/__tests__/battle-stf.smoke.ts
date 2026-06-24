@@ -29,7 +29,7 @@ assert.equal(r1.state.balances['M'], 5, 'defender GCC untouched');
 const ev = r1.events.find(e => (e as any).kind === 'battle') as any;
 assert.ok(ev, 'emits battle event');
 const loser = ev.loserId;
-assert.ok(r1.state.combat![loser].hp <= 100, 'loser hp reduced');
+assert.ok(r1.state.combat![loser].hp < r1.state.combat![loser].maxHp, 'loser took damage (hp < maxHp)');
 assert.equal(r1.state.combat![loser].woundedUntil, 10 + 3, 'woundedUntil = now + WOUND_TICKS');
 
 // 4) NPC↔NPC 世仇:双向好感都更负
