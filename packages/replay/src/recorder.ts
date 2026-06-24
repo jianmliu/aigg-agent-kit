@@ -1,4 +1,4 @@
-import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
+import { writeFileSync, appendFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import {
   SCHEMA_ID, type RunHeader, type Event, type Tick, type Summary, type Entity, type WorldMap,
@@ -30,6 +30,7 @@ export interface Recorder {
   tick(t: number): void;
   event(kind: string, ev?: Omit<Event, 'kind'>): void;
   metrics(m: Record<string, number>): void;
+  flush(): void;
   summary(s: Omit<Summary, 'kind'>): void;
   close(): void;
 }
@@ -41,21 +42,23 @@ export function createRecorder(opts: RecorderOpts): Recorder {
   const registry = opts.registry ?? defaultRegistry();
   const allowed = registry.eventKinds([CORE_PACK_ID, ...opts.packs]);
 
-  let stream: WriteStream | undefined;
+  let started = false;
   const sink =
     opts.write ??
     ((line: string) => {
-      if (!stream) {
+      if (!started) {
         mkdirSync(dirname(opts.path!), { recursive: true });
-        stream = createWriteStream(opts.path!, { flags: 'w' });
+        writeFileSync(opts.path!, line + '\n');
+        started = true;
+      } else {
+        appendFileSync(opts.path!, line + '\n');
       }
-      stream.write(line + '\n');
     });
   const writeObj = (o: unknown) => sink(JSON.stringify(o));
 
   let cur: Tick | null = null;
   let closed = false;
-  const flush = () => { if (cur) { writeObj(cur); cur = null; } };
+  const flushTick = () => { if (cur) { writeObj(cur); cur = null; } };
 
   return {
     run(init) {
@@ -67,7 +70,7 @@ export function createRecorder(opts: RecorderOpts): Recorder {
       };
       writeObj(header);
     },
-    tick(t) { if (closed) throw new Error('recorder: already closed'); flush(); cur = { kind: 'tick', t, events: [] }; },
+    tick(t) { if (closed) throw new Error('recorder: already closed'); flushTick(); cur = { kind: 'tick', t, events: [] }; },
     event(kind, ev = {}) {
       if (!allowed.has(kind)) {
         throw new Error(`recorder: undeclared event kind "${kind}" (declared packs: ${opts.packs.join(',') || '(none)'})`);
@@ -79,7 +82,8 @@ export function createRecorder(opts: RecorderOpts): Recorder {
       if (!cur) throw new Error('recorder: metrics() called before tick()');
       cur.metrics = { ...(cur.metrics ?? {}), ...m };
     },
-    summary(s) { if (closed) throw new Error('recorder: already closed'); flush(); writeObj({ kind: 'summary', ...s }); },
-    close() { flush(); stream?.end(); closed = true; },
+    flush() { if (closed) throw new Error('recorder: already closed'); flushTick(); },
+    summary(s) { if (closed) throw new Error('recorder: already closed'); flushTick(); writeObj({ kind: 'summary', ...s }); },
+    close() { flushTick(); closed = true; },
   };
 }

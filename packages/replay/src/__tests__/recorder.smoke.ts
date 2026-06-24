@@ -5,8 +5,7 @@
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { setTimeout as sleep } from 'node:timers/promises';
+import { readFileSync, rmSync } from 'node:fs';
 import { createRecorder } from '../recorder';
 import { validateRun } from '../validate';
 
@@ -55,23 +54,17 @@ assert.equal(JSON.parse(lines2[1]).kind, 'tick', 'last tick written on close()')
 // writing after close() throws
 assert.throws(() => r4.tick(2), /already closed/, 'tick after close rejected');
 
-// path-based sink: writes a real file that validates and round-trips
+// path-based sink: synchronous appends, so reads are immediate (no polling)
 const tmp = join(tmpdir(), 'replay-recorder-smoke.jsonl');
 const rf = createRecorder({ path: tmp, packs: ['town@0'] });
 rf.run({ runId: 'rf', entities: [{ id: 'npc:abao', name: 'A-Bao' }] });
 rf.tick(1);
 rf.event('town.talk', { actor: 'npc:abao', data: { verified: false } });
+rf.flush();                              // tick is on disk now, before close
+const mid = readFileSync(tmp, 'utf8').trim().split('\n');
+assert.equal(mid.length, 2, 'flush() makes the buffered tick visible immediately');
 rf.close();
-// the path sink writes via an async stream; wait for the flush to land on disk
-let back: string[] = [];
-for (let i = 0; i < 100; i++) {
-  if (existsSync(tmp)) {
-    back = readFileSync(tmp, 'utf8').trim().split('\n').filter((l) => l.length);
-    if (back.length >= 2) break;
-  }
-  await sleep(10);
-}
-assert.equal(back.length, 2, 'file header + tick flushed to disk');
+const back = readFileSync(tmp, 'utf8').trim().split('\n');
 assert.equal(JSON.parse(back[0]).schema, 'replay@1', 'file header written');
 assert.equal(validateRun(back).ok, true, 'file-sink stream validates');
 rmSync(tmp, { force: true });
