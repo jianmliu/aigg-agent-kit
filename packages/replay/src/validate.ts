@@ -42,17 +42,27 @@ export function validateRun(
     const line = i + 1;
     const isLast = i === objs.length - 1;
 
+    if (o === null || typeof o !== 'object') {
+      fail(line, `expected object, got ${o === null ? 'null' : typeof o}`);
+      continue;
+    }
+
     if (o.kind === 'summary') {
       if (!isLast) fail(line, 'summary must be the last line');
       continue;
     }
     if (o.kind !== 'tick') { fail(line, `expected tick, got ${String(o.kind)}`); continue; }
-    if (typeof o.t !== 'number' || o.t <= prevT) fail(line, `tick t not strictly increasing (t=${String(o.t)})`);
-    else prevT = o.t;
+    if (!Number.isFinite(o.t) || (o.t as number) <= prevT) fail(line, `tick t not strictly increasing (t=${String(o.t)})`);
+    else prevT = o.t as number;
 
-    for (const ev of o.events ?? []) {
-      if (!allowed.has(ev.kind)) fail(line, `unknown event kind ${ev.kind}`);
-      for (const pack of declaredPacks) for (const m of pack.validateEvent?.(ev, ctx) ?? []) fail(line, m);
+    if (o.events != null && !Array.isArray(o.events)) {
+      fail(line, 'tick.events must be an array');
+    } else {
+      for (const ev of o.events ?? []) {
+        if (!ev || typeof ev !== 'object' || !ev.kind) { fail(line, 'event missing kind'); continue; }
+        if (!allowed.has(ev.kind)) fail(line, `unknown event kind ${ev.kind}`);
+        for (const pack of declaredPacks) for (const m of pack.validateEvent?.(ev, ctx) ?? []) fail(line, m);
+      }
     }
     for (const pack of declaredPacks) for (const m of pack.validateTick?.(o as Tick, ctx) ?? []) fail(line, m);
   }

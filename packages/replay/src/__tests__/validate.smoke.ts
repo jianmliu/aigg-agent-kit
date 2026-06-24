@@ -48,6 +48,13 @@ assert.ok(r.errors.some((e) => e.msg.includes('attestation')), 'error mentions a
 const badSummary = [J(header), J({ kind: 'summary' }), J({ kind: 'tick', t: 1, events: [] })];
 assert.equal(validateRun(badSummary).ok, false, 'summary before ticks fails');
 
+// a body line that is JSON null must not throw
+assert.equal(validateRun([J(header), 'null']).ok, false, 'null body line fails, no throw');
+// non-array events must not throw
+assert.equal(validateRun([J(header), J({ kind: 'tick', t: 1, events: 42 })]).ok, false, 'non-array events fails');
+// NaN timestamp must be rejected
+assert.equal(validateRun([J(header), J({ kind: 'tick', t: NaN, events: [] })]).ok, false, 'NaN t fails');
+
 // core move/say always allowed even without declaring a pack
 const coreOnly = [
   J({ ...header, packs: [] }),
