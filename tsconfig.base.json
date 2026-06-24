@@ -20,7 +20,9 @@
       "@onchainpal/onchain/*": ["packages/onchain/src/*"]
 ,
       "@onchainpal/gamekit": ["packages/gamekit/src/index.ts"],
-      "@onchainpal/gamekit/*": ["packages/gamekit/src/*"]
+      "@onchainpal/gamekit/*": ["packages/gamekit/src/*"],
+      "@onchainpal/replay": ["packages/replay/src/index.ts"],
+      "@onchainpal/replay/*": ["packages/replay/src/*"]
     }
   },
   "include": ["packages"]
