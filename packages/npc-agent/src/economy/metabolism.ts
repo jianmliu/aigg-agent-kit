@@ -52,15 +52,22 @@ export class Metabolism {
   }
 
   /** Decide the cognitive state for a given balance. null = unknown (act normally). */
-  decide(balanceGcc: number | null): MetabolicDecision {
+  decide(balanceGcc: number | null, opts?: { wounded?: boolean }): MetabolicDecision {
     if (balanceGcc === null || balanceGcc === undefined || Number.isNaN(balanceGcc)) {
-      return { canThink: true, starving: false, tier: this.defaultTier, balanceGcc: null };
+      return { canThink: true, starving: false, tier: this.clamp(this.defaultTier, opts), balanceGcc: null };
     }
     if (balanceGcc < this.starvingBelowGcc) {
       return { canThink: false, starving: true, tier: this.tiers[this.tiers.length - 1], balanceGcc };
     }
     const tier = this.tiers.find((t) => balanceGcc >= t.minBalanceGcc) ?? this.tiers[this.tiers.length - 1];
-    return { canThink: true, starving: false, tier, balanceGcc };
+    return { canThink: true, starving: false, tier: this.clamp(tier, opts), balanceGcc };
+  }
+
+  /** 重伤:在已排序(降序)的 tiers 里下压一级,封底最低档。 */
+  private clamp(tier: MetabolicTier, opts?: { wounded?: boolean }): MetabolicTier {
+    if (!opts?.wounded) return tier;
+    const i = this.tiers.indexOf(tier);
+    return this.tiers[Math.min(i + 1, this.tiers.length - 1)];
   }
 }
 
