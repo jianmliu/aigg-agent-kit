@@ -1,4 +1,4 @@
-import { parseRun, activePanels, townLedger } from './viewer-core.js';
+import { parseRun, activePanels, townLedger, runError } from './viewer-core.js';
 
 const $meta = document.getElementById('meta');
 const $timeline = document.getElementById('timeline');
@@ -76,16 +76,25 @@ function render(run) {
   }
 }
 
+function loadText(text) {
+  let run;
+  try { run = parseRun(text); }
+  catch { $meta.textContent = 'could not parse file (invalid JSONL)'; $panels.innerHTML = ''; $timeline.innerHTML = ''; return; }
+  const err = runError(run);
+  if (err) { $meta.textContent = err; $panels.innerHTML = ''; $timeline.innerHTML = ''; return; }
+  render(run);
+}
+
 document.getElementById('file').addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
-  render(parseRun(await file.text()));
+  loadText(await file.text());
 });
 
 // auto-load ?run=<url> (e.g. /replay/?run=latest.jsonl when served by 0gtown)
 const runUrl = new URLSearchParams(location.search).get('run');
 if (runUrl) {
-  fetch(runUrl).then((r) => r.text()).then((t) => render(parseRun(t))).catch(() => {
+  fetch(runUrl).then((r) => r.text()).then((t) => loadText(t)).catch(() => {
     $meta.textContent = `failed to load ${runUrl}`;
   });
 }

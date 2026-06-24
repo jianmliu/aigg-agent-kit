@@ -21,6 +21,16 @@ export function parseRun(text) {
   return { header, ticks, summary };
 }
 
+/** Lightweight structural guard for the viewer (NOT the authoritative validator,
+ *  which lives in the TS package). Returns an error string, or null if the run
+ *  looks renderable. */
+export function runError(run) {
+  if (!run || !run.header || run.header.kind !== 'run') return 'not a replay run (missing run header)';
+  if (run.header.schema !== 'replay@1') return `unsupported schema: ${run.header.schema ?? '(none)'}`;
+  if (!Array.isArray(run.header.entities)) return 'run header has no entities';
+  return null;
+}
+
 /** Core panel always present; known declared packs light up; unknown packs ignored. */
 export function activePanels(header) {
   const panels = [...PACK_PANELS['core@0']];

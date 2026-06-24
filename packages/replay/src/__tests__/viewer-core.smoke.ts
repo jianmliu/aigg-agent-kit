@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 
 const mod = await import(fileURLToPath(new URL('../../viewer/viewer-core.js', import.meta.url)));
-const { parseRun, activePanels, townLedger } = mod;
+const { parseRun, activePanels, townLedger, runError } = mod;
 
 const text = [
   JSON.stringify({ kind: 'run', schema: 'replay@1', runId: 'r', createdAt: 0, packs: ['town@0'], entities: [{ id: 'npc:abao', name: 'A-Bao' }] }),
@@ -38,5 +38,9 @@ assert.equal(abao.balanceGcc, 6.9, 'latest balance tracked');
 assert.equal(abao.verifiedTalks, 1, 'verified talk counted');
 assert.equal(ledger.beliefs.length, 1, 'one belief card');
 assert.equal(ledger.beliefs[0].beliefRoot, '0xbeef', 'belief root captured');
+
+assert.equal(runError(parseRun(text)), null, 'valid run passes the guard');
+assert.ok(runError({ header: { kind: 'tick' } }), 'non-run header rejected');
+assert.ok(runError(parseRun(JSON.stringify({ kind: 'run', schema: 'pumptown/replay@0', entities: [] }))), 'foreign schema rejected');
 
 console.log('ALL VIEWER-CORE SMOKE TESTS PASSED ✅');
