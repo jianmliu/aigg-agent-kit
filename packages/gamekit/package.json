@@ -28,7 +28,8 @@
     "test:overhear": "tsx src/__tests__/shared-world-overhear.smoke.ts",
     "test:language": "tsx src/__tests__/language.smoke.ts",
     "test:action-loop": "tsx src/__tests__/action-loop.smoke.ts",
-    "test:action-loop-p2": "tsx src/__tests__/action-loop-p2.smoke.ts"
+    "test:action-loop-p2": "tsx src/__tests__/action-loop-p2.smoke.ts",
+    "test:resolve": "tsx src/__tests__/resolve-battle.smoke.ts"
   },
   "dependencies": {
     "@onchainpal/npc-agent": "workspace:*",
