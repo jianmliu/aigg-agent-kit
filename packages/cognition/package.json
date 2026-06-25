@@ -16,7 +16,9 @@
     "test:warn": "tsx src/__tests__/warn.smoke.ts",
     "test:gate": "tsx src/__tests__/gate.smoke.ts",
     "test:cognition": "tsx src/__tests__/cognition.smoke.ts",
-    "test:aigg": "tsx src/__tests__/aigg.smoke.ts"
+    "test:aigg": "tsx src/__tests__/aigg.smoke.ts",
+    "test:polity": "tsx src/__tests__/polity.smoke.ts",
+    "test:governance": "tsx src/__tests__/governance.smoke.ts"
   },
   "devDependencies": { "@types/node": "^22.8.4", "tsx": "^4.21.0" }
 }
