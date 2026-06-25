@@ -45,6 +45,7 @@ export function townLedger(run) {
   const npcs = new Map();
   const beliefs = [];
   const warnings = [];   // town.trust deltas, newest last
+  const guild = [];   // governance events: proposals, votes, sanctions (newest last)
   const ensure = (id) => {
     if (!npcs.has(id)) npcs.set(id, { id, balanceGcc: null, verifiedTalks: 0, burned: 0, refusals: 0, warnings: 0 });
     return npcs.get(id);
@@ -67,7 +68,10 @@ export function townLedger(run) {
       if (ev.kind === 'town.trust') {
         warnings.push({ npc: ev.actor, peer: d.peer, value: d.value, t: tick.t });
       }
+      if (ev.kind === 'town.propose') guild.push({ kind: 'propose', proposer: ev.actor, target: d.target, topic: d.topic, t: tick.t });
+      if (ev.kind === 'town.vote') guild.push({ kind: 'vote', voter: ev.actor, choice: d.choice, t: tick.t });
+      if (ev.kind === 'town.sanction') guild.push({ kind: 'sanction', target: d.target, passed: d.passed, shareFor: d.shareFor, t: tick.t });
     }
   }
-  return { npcs: [...npcs.values()], beliefs, warnings };
+  return { npcs: [...npcs.values()], beliefs, warnings, guild };
 }

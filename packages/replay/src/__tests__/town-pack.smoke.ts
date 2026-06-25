@@ -16,7 +16,7 @@ function errs(ev: Event): string[] {
 }
 
 assert.equal(TOWN_PACK_ID, 'town@0');
-assert.deepEqual(townPack.eventKinds, ['town.talk', 'town.pitch', 'town.refuse', 'town.anchor', 'town.belief', 'town.warn', 'town.trust']);
+assert.deepEqual(townPack.eventKinds, ['town.talk', 'town.pitch', 'town.refuse', 'town.anchor', 'town.belief', 'town.warn', 'town.trust', 'town.propose', 'town.vote', 'town.sanction']);
 
 // town.talk verified:true needs an attestation signature
 assert.equal(errs({ kind: 'town.talk', data: { verified: true, attestation: { signature: 'sig' } } }).length, 0, 'verified talk with sig ok');
@@ -34,6 +34,14 @@ assert.ok(errs({ kind: 'town.anchor', data: {} }).length > 0, 'anchor without ro
 
 // town.pitch is declared but carries no invariants yet
 assert.equal(errs({ kind: 'town.pitch', data: {} }).length, 0, 'town.pitch has no constraints yet');
+
+// town.vote requires choice of 'for' or 'against'
+assert.equal(errs({ kind: 'town.vote', data: { choice: 'for' } }).length, 0, 'valid vote ok');
+assert.ok(errs({ kind: 'town.vote', data: { choice: 'maybe' } }).length > 0, 'bad vote choice fails');
+
+// town.sanction requires boolean data.passed
+assert.equal(errs({ kind: 'town.sanction', data: { passed: true } }).length, 0, 'valid sanction ok');
+assert.ok(errs({ kind: 'town.sanction', data: {} }).length > 0, 'sanction without passed fails');
 
 // panel descriptor present
 assert.equal(townPack.viewer?.panels[0].render, 'town-ledger');

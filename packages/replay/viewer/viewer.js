@@ -38,6 +38,16 @@ const RENDERERS = {
       row.innerHTML = `<span>${esc(w.npc)} ↔ ${esc(w.peer)}</span><span class="bal">trust ${esc(String(w.value))}</span>`;
       el.appendChild(row);
     }
+    for (const g of model.guild) {
+      const row = document.createElement('div');
+      row.className = 'npc';
+      let label;
+      if (g.kind === 'propose') label = `${esc(g.proposer)} proposes to ban ${esc(g.target)} (${esc(g.topic)})`;
+      else if (g.kind === 'vote') label = `${esc(g.voter)} votes ${esc(g.choice)}`;
+      else label = `SANCTION ${esc(g.target)} — ${g.passed ? 'PASSED' : 'failed'} (${esc(String(g.shareFor))})`;
+      row.innerHTML = `<span class="muted">⚖ ${label}</span>`;
+      el.appendChild(row);
+    }
     return el;
   },
   'econ-price': () => notice('econ@0 price panel — not implemented this cycle'),

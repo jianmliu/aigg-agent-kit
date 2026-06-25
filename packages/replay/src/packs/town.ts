@@ -5,7 +5,7 @@ export const TOWN_PACK_ID = 'town@0';
 /** 0gtown's learn-loop. TEE attestations + 0G Storage roots are first-class. */
 export const townPack: ReplayPack = {
   id: TOWN_PACK_ID,
-  eventKinds: ['town.talk', 'town.pitch', 'town.refuse', 'town.anchor', 'town.belief', 'town.warn', 'town.trust'],
+  eventKinds: ['town.talk', 'town.pitch', 'town.refuse', 'town.anchor', 'town.belief', 'town.warn', 'town.trust', 'town.propose', 'town.vote', 'town.sanction'],
   validateEvent(ev: Event, _ctx: ValidateCtx): string[] {
     const errs: string[] = [];
     const d = ev.data ?? {};
@@ -23,6 +23,12 @@ export const townPack: ReplayPack = {
       if (typeof d.beliefRoot !== 'string' || !d.beliefRoot) {
         errs.push('town.anchor must carry a non-empty beliefRoot');
       }
+    }
+    if (ev.kind === 'town.vote' && d.choice !== 'for' && d.choice !== 'against') {
+      errs.push("town.vote requires data.choice of 'for' or 'against'");
+    }
+    if (ev.kind === 'town.sanction' && typeof d.passed !== 'boolean') {
+      errs.push('town.sanction requires a boolean data.passed');
     }
     return errs;
   },
