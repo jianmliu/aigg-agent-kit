@@ -12,3 +12,6 @@ export { TrustLedger, TRUST_DELTAS } from './social/trust';
 export { diffuseWarning } from './social/warn';
 export { shouldRefuse } from './gate';
 export { Cognition } from './cognition';
+export { Polity } from './governance/polity';
+export type { Choice, Proposal, TallyResult, Enactor, PolityOpts } from './governance/polity';
+export { voteBeliefGated, runSanctionVote } from './governance/voting';
