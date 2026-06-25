@@ -30,6 +30,13 @@ async function main() {
   assert.equal(ds.social, 1, 'peer belief → social');
   assert.equal(ds.faculty, 0, 'not faculty');
 
+  // a corpus with BOTH a self-belief and a peer-belief about the same topic → faculty AND social
+  await k.remember('npcs/c/memory', { slug: 'self-rug', description: 'rug is a scam', match: ['rug', 'trap'], kind: 'belief', assertedBy: 'c', outcome: 'loss' });
+  await k.remember('npcs/c/memory', { slug: 'peer-rug', description: 'x warned me rug is a scam', match: ['rug', 'trap'], kind: 'belief', assertedBy: 'x', outcome: 'loss' });
+  const dboth = await k.discernment('npcs/c/memory', 'rug', { mode: 'text', selfId: 'c' });
+  assert.equal(dboth.faculty, 1, 'self-belief present → faculty');
+  assert.equal(dboth.social, 1, 'peer-belief present → social');
+
   // select returns matching units
   const sel = await k.select('npcs/a/memory', 'elixir');
   assert.ok(sel.units.length >= 1 && sel.bundle.includes('elixir'), 'select recalls the unit');
