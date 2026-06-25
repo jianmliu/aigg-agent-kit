@@ -24,6 +24,10 @@ export class Cognition {
     try { discernment = await this.kernel.discernment(corpus, topic, { mode: 'text', selfId: corpusId(self) }); } catch { /* best-effort */ }
     try { beliefs = await this.kernel.select(corpus, topic); } catch { /* best-effort */ }
     try { trust = await this.trust.get(self, peer); } catch { /* best-effort */ }
+    // dedupe recalled units by description — learn() writes an episode + a belief with the same text
+    const seen = new Set<string>();
+    const units = beliefs.units.filter((u) => { if (seen.has(u.description)) return false; seen.add(u.description); return true; });
+    beliefs = { ...beliefs, units, bundle: units.map((u) => `- ${u.description}`).join('\n') };
     return { discernment, trust, beliefs, summary: this.buildSummary(discernment, beliefs, trust) };
   }
 

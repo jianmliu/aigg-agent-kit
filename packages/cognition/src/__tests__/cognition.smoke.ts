@@ -23,6 +23,7 @@ async function main() {
   assert.equal(s.discernment.faculty, 1, 'self-learned');
   assert.ok(s.summary.length > 0, 'summary is non-empty');
   assert.ok(Math.abs(s.trust - TRUST_DELTAS.scammed) < 1e-9, 'visitor trust dropped');
+  assert.ok(!/(.+)\n\1/.test(s.beliefs.bundle), 'recall bundle has no duplicate lines');
 
   // warn Liu → Liu gains a social belief, refuses unburned
   const accepted = await cog.warn(A, L, 'elixir');
