@@ -46,6 +46,7 @@ export function townLedger(run) {
   const beliefs = [];
   const warnings = [];   // town.trust deltas, newest last
   const guild = [];   // governance events: proposals, votes, sanctions (newest last)
+  const credit = [];   // lend/default/rap events (newest last)
   const ensure = (id) => {
     if (!npcs.has(id)) npcs.set(id, { id, balanceGcc: null, verifiedTalks: 0, burned: 0, refusals: 0, warnings: 0 });
     return npcs.get(id);
@@ -71,7 +72,10 @@ export function townLedger(run) {
       if (ev.kind === 'town.propose') guild.push({ kind: 'propose', proposer: ev.actor, target: d.target, topic: d.topic, t: tick.t });
       if (ev.kind === 'town.vote') guild.push({ kind: 'vote', voter: ev.actor, choice: d.choice, t: tick.t });
       if (ev.kind === 'town.sanction') guild.push({ kind: 'sanction', target: d.target, passed: d.passed, shareFor: d.shareFor, t: tick.t });
+      if (ev.kind === 'town.lend') credit.push({ kind: 'lend', lender: ev.actor, borrower: d.borrower, amount: d.amount, t: tick.t });
+      if (ev.kind === 'town.default') credit.push({ kind: 'default', lender: d.lender, borrower: d.borrower, owed: d.owed, recovered: d.recovered, t: tick.t });
+      if (ev.kind === 'town.rap') credit.push({ kind: 'rap', offender: d.offender, rapKind: d.kind, victim: d.victim, t: tick.t });
     }
   }
-  return { npcs: [...npcs.values()], beliefs, warnings, guild };
+  return { npcs: [...npcs.values()], beliefs, warnings, guild, credit };
 }

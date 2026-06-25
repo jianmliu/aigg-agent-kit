@@ -48,6 +48,16 @@ const RENDERERS = {
       row.innerHTML = `<span class="muted">⚖ ${label}</span>`;
       el.appendChild(row);
     }
+    for (const c of model.credit) {
+      const row = document.createElement('div');
+      row.className = 'npc';
+      let label;
+      if (c.kind === 'lend') label = `${esc(c.lender)} lent ${esc(String(c.amount))} $0G to ${esc(c.borrower)}`;
+      else if (c.kind === 'default') label = `${esc(c.borrower)} DEFAULTED on ${esc(c.lender)} (owed ${esc(String(c.owed))}, paid ${esc(String(c.recovered))})`;
+      else label = `RAP ${esc(c.offender)} — ${esc(c.rapKind)} (vs ${esc(c.victim)})`;
+      row.innerHTML = `<span class="muted">💱 ${label}</span>`;
+      el.appendChild(row);
+    }
     return el;
   },
   'econ-price': () => notice('econ@0 price panel — not implemented this cycle'),
