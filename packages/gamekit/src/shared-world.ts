@@ -506,11 +506,16 @@ export class SharedWorld {
     // research/socialize 只在「该轴匮乏 AND 该房间能回该轴」时 available → 涌现闭环。
     // 轴名不写死:动作迭代这张表,绝不 if(axis==='energy')(教训 B,三世界轴名不同)。
     const roomSatisfies = this.needsCfg.satisfy[rec.room];
+    const inWild = !!this.wild?.spawns[rec.room]?.length;
+    // productionIntent: v1 先用"owner≠host 且不饿但有余力"占位 —— TODO(owner): 接 owner 策略
+    const productionIntent = false;
     return {
       npcId, persona, room: rec.room, npcsInRoom,
       balanceGcc, balanceSilver, needs, ricePrice,
       ...(roomSatisfies ? { roomSatisfies } : {}),
       ...(opts?.marketRoom ? { marketRoom: opts.marketRoom } : {}),
+      ...(inWild ? { inWild } : {}),
+      ...(productionIntent ? { productionIntent } : {}),
       now
     };
   }

@@ -47,6 +47,10 @@ export interface ActionContext {
   marketRoom?: string;
   /** optional relationship hint (say). P1 may leave undefined. */
   rel?: RelationshipState;
+  /** Mode B:当前房间是否野外(WildZone)。 */
+  inWild?: boolean;
+  /** Mode B:为产出而狩猎的意图(由 needs/owner 策略推导)。 */
+  productionIntent?: boolean;
   /** tick-injected deterministic timestamp (NOT Date.now() inside the action). */
   now: number;
 }
