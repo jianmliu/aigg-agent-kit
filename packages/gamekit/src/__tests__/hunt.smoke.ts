@@ -43,6 +43,7 @@ async function main() {
   assert.equal(res.ok, true, 'hunt ok');
   assert.equal(res.outcome, 'win', 'strong hunter wins');
   assert.ok(res.yield!.silver === 5, 'mints fixed-range silver yield');
+  assert.equal(res.yield!.food, 4, 'mints fixed food yield');
   assert.equal(res.balanceSilver, 5, 'silver minted to hunter');
   assert.equal(await w.balanceGcc('H'), gcc0, 'GCC unchanged by hunt (conservation)');
 

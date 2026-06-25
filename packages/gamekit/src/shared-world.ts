@@ -1707,7 +1707,8 @@ export class SharedWorld {
     // 1) seed(hashIds 派生自 now + npcId + species/room);2) 选 species(按权重,种子化)
     const seed = (Math.abs(hashIds(now, npcId, species ?? rec.room)) >>> 0);
     const rng = mulberry32(seed);
-    const chosen = species ?? pickWeighted(table, rng);
+    const picked = pickWeighted(table, rng); // always consume the pick draw so the rng sequence is independent of whether `species` was passed
+    const chosen = species ?? picked;
     const spec = wild.bestiary.find(b => b.id === chosen);
     if (!spec) return { ok: false, reason: 'no_species', balanceSilver: balSilver0, rounds: [] };
 
