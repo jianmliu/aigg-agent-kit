@@ -44,6 +44,12 @@ async function main() {
   const neutral = await cog2.recall(A, V, 'elixir');
   assert.deepEqual(neutral.discernment, { q: 0, faculty: 0, social: 0, confidence: 0 }, 'kernel down → neutral signal');
   await cog2.learn(A, V, { topic: 'x', description: 'y', outcome: 'loss' });   // must not throw
+  assert.equal(await cog2.warn('npc:a', 'npc:b', 'elixir'), false, 'warn with a dead kernel → false (no throw)');
+
+  // gain outcome raises peer trust
+  await cog.learn(A, 'visitor:2', { topic: 'fair-deal', description: 'an honest trade', outcome: 'gain' });
+  const sg = await cog.recall(A, 'visitor:2', 'fair-deal');
+  assert.ok(sg.trust > 0, 'gain outcome raises peer trust');
 
   console.log('ALL COGNITION SMOKE TESTS PASSED ✅');
 }

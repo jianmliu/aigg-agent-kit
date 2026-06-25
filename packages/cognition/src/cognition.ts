@@ -36,10 +36,12 @@ export class Cognition {
     const match = [ep.topic, 'trap'];
     try {
       await this.kernel.remember(corpus, { slug, description: ep.description, match, kind: 'episodic', assertedBy: sid, outcome: ep.outcome });
-      if (formBelief) {
-        await this.kernel.remember(corpus, { slug: `belief-${slug}`, description: ep.description, match, kind: 'belief', assertedBy: sid, outcome: ep.outcome });
-      }
     } catch { /* best-effort */ }
+    if (formBelief) {
+      try {
+        await this.kernel.remember(corpus, { slug: `belief-${slug}`, description: ep.description, match, kind: 'belief', assertedBy: sid, outcome: ep.outcome });
+      } catch { /* best-effort */ }
+    }
     try {
       const delta = ep.outcome === 'loss' ? TRUST_DELTAS.scammed : ep.outcome === 'gain' ? TRUST_DELTAS.honestDeal : 0;
       if (delta) await this.trust.update(self, peer, delta);
