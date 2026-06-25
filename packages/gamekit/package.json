@@ -32,7 +32,8 @@
     "test:resolve": "tsx src/__tests__/resolve-battle.smoke.ts",
     "test:derive": "tsx src/__tests__/derive-combat-stats.smoke.ts",
     "test:battle": "tsx src/__tests__/battle-stf.smoke.ts",
-    "test:combatstore": "tsx src/__tests__/combat-store.smoke.ts"
+    "test:combatstore": "tsx src/__tests__/combat-store.smoke.ts",
+    "test:hunt": "tsx src/__tests__/hunt.smoke.ts"
   },
   "dependencies": {
     "@onchainpal/npc-agent": "workspace:*",

@@ -24,9 +24,10 @@ import type {
 import type { AiggMemoryClient, PlanResult, DiscernmentResult } from '@onchainpal/npc-agent';
 import { LocalLedgerActivator, ActivationError } from './aigg/activation';
 import type { Activator } from './aigg/activation';
-import { applyTx, relKey, type WorldState, type WorldEvent, type WorldTx, type MarketState, type PredictionMarket } from './stf/world-stf';
+import { applyTx, emptyWorld, relKey, type WorldState, type WorldEvent, type WorldTx, type MarketState, type PredictionMarket } from './stf/world-stf';
 import { deriveCombatStats } from './stf/derive-combat-stats';
-import type { CombatStats } from './stf/combat-types';
+import type { CombatStats, BattleRound } from './stf/combat-types';
+import { mulberry32 } from './stf/luck';
 import type { WildConfig } from './stf/wild-types';
 import { LlmInferenceOracle, type InferenceOracle } from './stf/inference-oracle';
 import type { SettlementLayer } from './stf/settlement-layer';
@@ -236,6 +237,11 @@ export interface SharedWorldOptions {
    * 由 WorldDef.wild 注入;未注入 → hunt() 返回 no_wild_config。
    */
   wild?: WildConfig;
+  /**
+   * 饮食需求轴名(satisfyNeed 的 axis)—— 世界各异('食'/'能量'/'hunger' 等)。
+   * 默认 '食'。hunt 胜利后用此轴回填 food 产出(spec §3.2 生产闭环)。
+   */
+  eatAxis?: string;
 }
 
 export class SharedWorld {
@@ -265,6 +271,8 @@ export class SharedWorld {
   private readonly onEvents?: (events: WorldEvent[], ctx: { now: number; tx?: WorldTx }) => void;
   /** 野外遭遇配置(Task B1 WildConfig)——未注入时 hunt() 拒绝。 */
   readonly wild?: WildConfig;
+  /** 饮食需求轴名(hunt 胜利后回填 food 产出用)。默认 '食'。 */
+  private readonly eatAxis: string;
   /**
    * Draft NPCs — created but never funded. RAM-only by design: no store write,
    * so they vanish on restart and never appear in the persisted registry. Keyed
@@ -312,6 +320,7 @@ export class SharedWorld {
     };
     this.onEvents = opts.onEvents;
     this.wild = opts.wild;
+    this.eatAxis = opts.eatAxis ?? '食';
     this.rooms = opts.rooms ?? ['广场', '酒馆', '集市'];
   }
 
@@ -1668,4 +1677,103 @@ export class SharedWorld {
       }
     }));
   }
+
+  /**
+   * hunt — 野外狩猎生产闭环(Mode B 核心生产 op, Task B3)。
+   * 7 步 op 模板(同 tradeRice):
+   *   1) seed + 选 species(按权重,种子化)
+   *   2) 怪物属性 ±15% 方差
+   *   3) build WorldState slice → applyTx(battle tx) via STF
+   *   4) 读 battle 事件(rounds / winnerId)
+   *   5) 持久化猎手终局 HP(setCombat)
+   *   6) 胜则 ②层 mint 产出(grantSilver) + 喂食(satisfyNeed)
+   *   7) emit + return
+   *
+   * GCC 守恒:hunt 不动 GCC 账,只动 silver/needs(off-chain 游戏货币)。
+   * 确定性:注入 now(默认 Date.now()),同 now+ids → 同 seed → 同 rounds。
+   */
+  async hunt(npcId: string, species?: string, now = Date.now()): Promise<{
+    ok: boolean; reason?: string; outcome?: 'win' | 'loss';
+    yield?: { silver: number; food: number };
+    balanceSilver: number; rounds: BattleRound[];
+  }> {
+    const rec = await this.getNpc(npcId);
+    const balSilver0 = await this.balanceSilver(npcId);
+    if (!rec) return { ok: false, reason: 'no_npc', balanceSilver: balSilver0, rounds: [] };
+    const wild = this.wild;
+    const table = wild?.spawns[rec.room];
+    if (!wild || !table?.length) return { ok: false, reason: 'not_wild', balanceSilver: balSilver0, rounds: [] };
+
+    // 1) seed(hashIds 派生自 now + npcId + species/room);2) 选 species(按权重,种子化)
+    const seed = (Math.abs(hashIds(now, npcId, species ?? rec.room)) >>> 0);
+    const rng = mulberry32(seed);
+    const chosen = species ?? pickWeighted(table, rng);
+    const spec = wild.bestiary.find(b => b.id === chosen);
+    if (!spec) return { ok: false, reason: 'no_species', balanceSilver: balSilver0, rounds: [] };
+
+    // 2) 怪物属性 ±15% 方差(同 spec 确保种子化)
+    const v = 0.85 + rng() * 0.3;
+    const monster: CombatStats = {
+      maxHp: Math.round(spec.maxHp * v), hp: Math.round(spec.maxHp * v),
+      atk: Math.round(spec.atk * v), def: spec.def, spirit: spec.spirit,
+      element: spec.element, skills: spec.skills ?? []
+    };
+
+    // 3) build WorldState slice → applyTx(battle)
+    const aStats = await this.combatOf(npcId);
+    const slice: WorldState = {
+      ...emptyWorld(),
+      npcs: { [npcId]: { ...rec, status: 'active' } },
+      combat: { [npcId]: aStats }
+    };
+    const tx: WorldTx = { type: 'battle', attackerId: npcId, defender: { kind: 'monster', species: chosen, stats: monster }, seed, now };
+    const { state: applied, events } = applyTx(slice, tx, new DefaultGameRules(() => undefined));
+
+    // 4) 读 battle 事件
+    const ev = events.find(e => (e as { kind?: string }).kind === 'battle') as
+      { kind: 'battle'; winnerId: string; loserId: string; rounds: BattleRound[] } | undefined;
+    if (!ev) return { ok: false, reason: 'no_battle', balanceSilver: balSilver0, rounds: [] };
+
+    // 5) 持久化猎手终局 HP/重伤
+    const appliedCombat = (applied.combat ?? {})[npcId];
+    if (appliedCombat) await this.setCombat(npcId, appliedCombat);
+
+    // 6) ②层落地:胜则 mint 产出(grantSilver) + 喂 food(satisfyNeed);emit 事件
+    const won = ev.winnerId === npcId;
+    let silver = 0, food = 0, balanceSilver = balSilver0;
+    if (won) {
+      silver = rollRange(spec.drops.silver, rng);
+      food = rollRange(spec.drops.food, rng);
+      if (silver > 0) balanceSilver = await this.grantSilver(npcId, silver);   // ②层 mint
+      if (food > 0) await this.satisfyNeed(npcId, this.eatAxis, food);
+    }
+
+    // 7) emit + return
+    this.emit(events, { now, tx });
+    return { ok: true, outcome: won ? 'win' : 'loss', yield: won ? { silver, food } : undefined, balanceSilver, rounds: ev.rounds };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 文件工具区:hunt 专用本地助手(就地定义,避免跨文件耦合/导出改动)
+// ---------------------------------------------------------------------------
+
+/** 同 builtins.ts steal 的种子派生 —— 就地定义(4 行),避免跨文件耦合/导出改动。 */
+function hashIds(now: number, a: string, b: string): number {
+  let h = 2166136261 ^ (now | 0);
+  const s = `${a}|${b}`;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h | 0;
+}
+
+function pickWeighted(table: Array<{ species: string; weight: number }>, rng: () => number): string {
+  const total = table.reduce((s, e) => s + e.weight, 0);
+  let r = rng() * total;
+  for (const e of table) { r -= e.weight; if (r <= 0) return e.species; }
+  return table[table.length - 1].species;
+}
+
+function rollRange(range: [number, number] | undefined, rng: () => number): number {
+  if (!range) return 0;
+  const [lo, hi] = range; return lo + Math.floor(rng() * (hi - lo + 1));
 }
