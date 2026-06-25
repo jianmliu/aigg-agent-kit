@@ -34,7 +34,8 @@
     "test:battle": "tsx src/__tests__/battle-stf.smoke.ts",
     "test:combatstore": "tsx src/__tests__/combat-store.smoke.ts",
     "test:hunt": "tsx src/__tests__/hunt.smoke.ts",
-    "test:huntaction": "tsx src/__tests__/hunt-action.smoke.ts"
+    "test:huntaction": "tsx src/__tests__/hunt-action.smoke.ts",
+    "test:selffund": "tsx src/__tests__/hunt-selffund.smoke.ts"
   },
   "dependencies": {
     "@onchainpal/npc-agent": "workspace:*",
