@@ -5,7 +5,7 @@ export const TOWN_PACK_ID = 'town@0';
 /** 0gtown's learn-loop. TEE attestations + 0G Storage roots are first-class. */
 export const townPack: ReplayPack = {
   id: TOWN_PACK_ID,
-  eventKinds: ['town.talk', 'town.pitch', 'town.refuse', 'town.anchor'],
+  eventKinds: ['town.talk', 'town.pitch', 'town.refuse', 'town.anchor', 'town.belief', 'town.warn', 'town.trust'],
   validateEvent(ev: Event, _ctx: ValidateCtx): string[] {
     const errs: string[] = [];
     const d = ev.data ?? {};

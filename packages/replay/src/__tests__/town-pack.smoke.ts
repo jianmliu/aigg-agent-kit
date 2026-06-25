@@ -16,7 +16,7 @@ function errs(ev: Event): string[] {
 }
 
 assert.equal(TOWN_PACK_ID, 'town@0');
-assert.deepEqual(townPack.eventKinds, ['town.talk', 'town.pitch', 'town.refuse', 'town.anchor']);
+assert.deepEqual(townPack.eventKinds, ['town.talk', 'town.pitch', 'town.refuse', 'town.anchor', 'town.belief', 'town.warn', 'town.trust']);
 
 // town.talk verified:true needs an attestation signature
 assert.equal(errs({ kind: 'town.talk', data: { verified: true, attestation: { signature: 'sig' } } }).length, 0, 'verified talk with sig ok');

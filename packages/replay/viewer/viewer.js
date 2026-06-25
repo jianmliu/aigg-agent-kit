@@ -23,7 +23,7 @@ const RENDERERS = {
       const row = document.createElement('div');
       row.className = 'npc';
       const seal = n.verifiedTalks ? `<span class="seal" title="TEE-verified thoughts">● ${n.verifiedTalks}</span>` : '';
-      row.innerHTML = `<span>${esc(n.id)}</span> ${seal} <span class="bal">${n.balanceGcc ?? '—'} $0G · burned ${n.burned} · refused ${n.refusals}</span>`;
+      row.innerHTML = `<span>${esc(n.id)}</span> ${seal} <span class="bal">${n.balanceGcc ?? '—'} $0G · burned ${n.burned} · refused ${n.refusals} · warned ${n.warnings}</span>`;
       el.appendChild(row);
     }
     for (const b of model.beliefs) {
@@ -31,6 +31,12 @@ const RENDERERS = {
       card.className = 'belief';
       card.innerHTML = `<div>${esc(b.belief)}</div>${b.beliefRoot ? `<div class="root">0G Storage · ${esc(b.beliefRoot)}</div>` : ''}`;
       el.appendChild(card);
+    }
+    for (const w of model.warnings) {
+      const row = document.createElement('div');
+      row.className = 'npc';
+      row.innerHTML = `<span>${esc(w.npc)} ↔ ${esc(w.peer)}</span><span class="bal">trust ${esc(String(w.value))}</span>`;
+      el.appendChild(row);
     }
     return el;
   },

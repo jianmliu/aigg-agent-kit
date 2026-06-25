@@ -44,8 +44,9 @@ export function activePanels(header) {
 export function townLedger(run) {
   const npcs = new Map();
   const beliefs = [];
+  const warnings = [];   // town.trust deltas, newest last
   const ensure = (id) => {
-    if (!npcs.has(id)) npcs.set(id, { id, balanceGcc: null, verifiedTalks: 0, burned: 0, refusals: 0 });
+    if (!npcs.has(id)) npcs.set(id, { id, balanceGcc: null, verifiedTalks: 0, burned: 0, refusals: 0, warnings: 0 });
     return npcs.get(id);
   };
   for (const e of run.header.entities || []) if (e.kind === 'npc') ensure(e.id);
@@ -62,7 +63,11 @@ export function townLedger(run) {
       if ((ev.kind === 'town.anchor' || ev.kind === 'town.refuse') && d.belief) {
         beliefs.push({ npc: ev.actor, claim: d.claim, belief: d.belief, beliefRoot: d.beliefRoot, t: tick.t });
       }
+      if (ev.kind === 'town.warn' && d.accepted) n.warnings = (n.warnings || 0) + 1;
+      if (ev.kind === 'town.trust') {
+        warnings.push({ npc: ev.actor, peer: d.peer, value: d.value, t: tick.t });
+      }
     }
   }
-  return { npcs: [...npcs.values()], beliefs };
+  return { npcs: [...npcs.values()], beliefs, warnings };
 }
