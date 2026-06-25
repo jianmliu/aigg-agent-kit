@@ -15,3 +15,8 @@ export { Cognition } from './cognition';
 export { Polity } from './governance/polity';
 export type { Choice, Proposal, TallyResult, Enactor, PolityOpts } from './governance/polity';
 export { voteBeliefGated, runSanctionVote } from './governance/voting';
+export { RapSheet } from './society/rapsheet';
+export type { RapEntry } from './society/rapsheet';
+export { LoanBook, LOAN_RATE, LOAN_TERM } from './society/lending';
+export type { Loan, Settlement } from './society/lending';
+export { misconductTopic, recordMisconduct, runRapSanction } from './society/misconduct';
