@@ -18,7 +18,10 @@
     "test:cognition": "tsx src/__tests__/cognition.smoke.ts",
     "test:aigg": "tsx src/__tests__/aigg.smoke.ts",
     "test:polity": "tsx src/__tests__/polity.smoke.ts",
-    "test:governance": "tsx src/__tests__/governance.smoke.ts"
+    "test:governance": "tsx src/__tests__/governance.smoke.ts",
+    "test:rapsheet": "tsx src/__tests__/rapsheet.smoke.ts",
+    "test:lending": "tsx src/__tests__/lending.smoke.ts",
+    "test:society": "tsx src/__tests__/society.smoke.ts"
   },
   "devDependencies": { "@types/node": "^22.8.4", "tsx": "^4.21.0" }
 }
