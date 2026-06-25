@@ -75,3 +75,6 @@ export type { DemoPlan } from './aigg/static-plans';
 // Zero-dep on-chain balance reader (ERC-20 balanceOf)
 export { ChainBalanceProvider, BASE_USDC, BASE_GCC, BASE_ERC8257_TOOL_REGISTRY } from './aigg/chain-balances';
 export type { ChainBalanceProviderOptions, TokenBalance } from './aigg/chain-balances';
+
+// 野外遭遇 / 妖怪图鉴类型(B1)
+export type { DropTable, MonsterSpecies, WildConfig } from './stf/wild-types';

@@ -24,7 +24,11 @@ import type {
 import type { AiggMemoryClient, PlanResult, DiscernmentResult } from '@onchainpal/npc-agent';
 import { LocalLedgerActivator, ActivationError } from './aigg/activation';
 import type { Activator } from './aigg/activation';
-import { applyTx, relKey, type WorldState, type WorldEvent, type WorldTx, type MarketState, type PredictionMarket } from './stf/world-stf';
+import { applyTx, emptyWorld, relKey, type WorldState, type WorldEvent, type WorldTx, type MarketState, type PredictionMarket } from './stf/world-stf';
+import { deriveCombatStats } from './stf/derive-combat-stats';
+import type { CombatStats, BattleRound } from './stf/combat-types';
+import { mulberry32 } from './stf/luck';
+import type { WildConfig } from './stf/wild-types';
 import { LlmInferenceOracle, type InferenceOracle } from './stf/inference-oracle';
 import type { SettlementLayer } from './stf/settlement-layer';
 import type { Effect, Attestation, RelationshipState } from '@onchainpal/npc-agent';
@@ -39,6 +43,7 @@ const ONCHAIN = { onchain: true } as const;
 const npcKey = (id: string) => `npc:${id}`;
 const gccKey = (id: string) => `npc:${id}:gcc`;
 const silverKey = (id: string) => `npc:${id}:silver`;   // off-chain 游戏货币(银两)账,与 gcc 并列但不带 ONCHAIN
+const combatKey = (id: string) => `npc:${id}:combat`;   // off-chain 战斗属性存档(不带 ONCHAIN,随世界层隔离)
 const diaryKey = (id: string) => `npc:${id}:diary`;   // off-chain 夜记 log (narrative, not a typed memory unit)
 const logKey = (id: string) => `npc:${id}:log`;       // off-chain 3rd-person system log (debug: say/move/pitch/dream)
 const riceKey = (id: string) => `npc:${id}:rice`;
@@ -227,6 +232,16 @@ export interface SharedWorldOptions {
    *   interjectMaxPerTalk=1(每次 talk 至多 1 次插话 → 至多 1 次额外推理/GCC 烧)
    */
   overhear?: { enabled?: boolean; maxListeners?: number; interject?: boolean; interjectMaxPerTalk?: number };
+  /**
+   * 野外遭遇配置(WildConfig)—— 哪些房间是野外、妖怪图鉴、各房间遭遇权重。
+   * 由 WorldDef.wild 注入;未注入 → hunt() 返回 no_wild_config。
+   */
+  wild?: WildConfig;
+  /**
+   * 饮食需求轴名(satisfyNeed 的 axis)—— 世界各异('食'/'能量'/'hunger' 等)。
+   * 默认 '食'。hunt 胜利后用此轴回填 food 产出(spec §3.2 生产闭环)。
+   */
+  eatAxis?: string;
 }
 
 export class SharedWorld {
@@ -254,6 +269,10 @@ export class SharedWorld {
   /** 旁听配置 —— 全字段已落默认(见构造函数)。成本封顶双闸:maxListeners≤4 / interjectMaxPerTalk≤1。 */
   private readonly overhearCfg: { enabled: boolean; maxListeners: number; interject: boolean; interjectMaxPerTalk: number };
   private readonly onEvents?: (events: WorldEvent[], ctx: { now: number; tx?: WorldTx }) => void;
+  /** 野外遭遇配置(Task B1 WildConfig)——未注入时 hunt() 拒绝。 */
+  readonly wild?: WildConfig;
+  /** 饮食需求轴名(hunt 胜利后回填 food 产出用)。默认 '食'。 */
+  private readonly eatAxis: string;
   /**
    * Draft NPCs — created but never funded. RAM-only by design: no store write,
    * so they vanish on restart and never appear in the persisted registry. Keyed
@@ -300,6 +319,8 @@ export class SharedWorld {
       interjectMaxPerTalk: opts.overhear?.interjectMaxPerTalk ?? 1,
     };
     this.onEvents = opts.onEvents;
+    this.wild = opts.wild;
+    this.eatAxis = opts.eatAxis ?? '食';
     this.rooms = opts.rooms ?? ['广场', '酒馆', '集市'];
   }
 
@@ -375,6 +396,8 @@ export class SharedWorld {
     // 银两 = off-chain 游戏货币(无 ONCHAIN);默认底 10,让新 NPC 开局能买米。②层 → wkey。
     await this.store.set(W, this.wkey(silverKey(id)), input.startSilver ?? 10);
     await this.addToRegistry(id);
+    // 战斗属性初档 —— 新 NPC 建档时即从 background 派生全血战斗属性(Task B2)。
+    await this.setCombat(rec.id, deriveCombatStats(rec.background));
     void this.seedGoal(rec); // fire-and-forget: give the NPC a planning seed (kind=goal) so plan() has something to plan toward
     this.emit([{ kind: 'npcCreated', npcId: id, status: 'active' }], { now: Date.now() });
     return id;
@@ -483,11 +506,16 @@ export class SharedWorld {
     // research/socialize 只在「该轴匮乏 AND 该房间能回该轴」时 available → 涌现闭环。
     // 轴名不写死:动作迭代这张表,绝不 if(axis==='energy')(教训 B,三世界轴名不同)。
     const roomSatisfies = this.needsCfg.satisfy[rec.room];
+    const inWild = !!this.wild?.spawns[rec.room]?.length;
+    // productionIntent: v1 先用"owner≠host 且不饿但有余力"占位 —— TODO(owner): 接 owner 策略
+    const productionIntent = false;
     return {
       npcId, persona, room: rec.room, npcsInRoom,
       balanceGcc, balanceSilver, needs, ricePrice,
       ...(roomSatisfies ? { roomSatisfies } : {}),
       ...(opts?.marketRoom ? { marketRoom: opts.marketRoom } : {}),
+      ...(inWild ? { inWild } : {}),
+      ...(productionIntent ? { productionIntent } : {}),
       now
     };
   }
@@ -1274,6 +1302,24 @@ export class SharedWorld {
   async balanceSilver(npcId: string): Promise<number> {
     return (await this.getScoped<number>(silverKey(npcId))) ?? 0;
   }
+
+  /**
+   * 读战斗属性(off-chain 战斗存档)—— 先查 store;若缺(老存档无 combat)则懒派生、持久化再返。
+   * 同 balanceSilver 模式:getScoped + wkey,不带 ONCHAIN。
+   */
+  async combatOf(npcId: string): Promise<CombatStats> {
+    const s = await this.getScoped<CombatStats>(combatKey(npcId));
+    if (s) return s;
+    const rec = await this.getNpc(npcId);
+    const seeded = deriveCombatStats(rec?.background ?? npcId);   // 懒派生兜底(老存档无 combat)
+    await this.store.set(W, this.wkey(combatKey(npcId)), seeded);
+    return seeded;
+  }
+
+  /** 写战斗属性(off-chain 战斗存档)—— hunt 结算后落盘重伤状态(hp/woundedUntil);不带 ONCHAIN。 */
+  async setCombat(npcId: string, stats: CombatStats): Promise<void> {
+    await this.store.set(W, this.wkey(combatKey(npcId)), stats);
+  }
   /**
    * List NPCs. Persisted (activated) NPCs are visible to everyone; RAM drafts
    * are visible ONLY to their owner (pass `viewerId`). No viewer → activated only.
@@ -1636,4 +1682,104 @@ export class SharedWorld {
       }
     }));
   }
+
+  /**
+   * hunt — 野外狩猎生产闭环(Mode B 核心生产 op, Task B3)。
+   * 7 步 op 模板(同 tradeRice):
+   *   1) seed + 选 species(按权重,种子化)
+   *   2) 怪物属性 ±15% 方差
+   *   3) build WorldState slice → applyTx(battle tx) via STF
+   *   4) 读 battle 事件(rounds / winnerId)
+   *   5) 持久化猎手终局 HP(setCombat)
+   *   6) 胜则 ②层 mint 产出(grantSilver) + 喂食(satisfyNeed)
+   *   7) emit + return
+   *
+   * GCC 守恒:hunt 不动 GCC 账,只动 silver/needs(off-chain 游戏货币)。
+   * 确定性:注入 now(默认 Date.now()),同 now+ids → 同 seed → 同 rounds。
+   */
+  async hunt(npcId: string, species?: string, now = Date.now()): Promise<{
+    ok: boolean; reason?: string; outcome?: 'win' | 'loss';
+    yield?: { silver: number; food: number };
+    balanceSilver: number; rounds: BattleRound[];
+  }> {
+    const rec = await this.getNpc(npcId);
+    const balSilver0 = await this.balanceSilver(npcId);
+    if (!rec) return { ok: false, reason: 'no_npc', balanceSilver: balSilver0, rounds: [] };
+    const wild = this.wild;
+    const table = wild?.spawns[rec.room];
+    if (!wild || !table?.length) return { ok: false, reason: 'not_wild', balanceSilver: balSilver0, rounds: [] };
+
+    // 1) seed(hashIds 派生自 now + npcId + species/room);2) 选 species(按权重,种子化)
+    const seed = (Math.abs(hashIds(now, npcId, species ?? rec.room)) >>> 0);
+    const rng = mulberry32(seed);
+    const picked = pickWeighted(table, rng); // always consume the pick draw so the rng sequence is independent of whether `species` was passed
+    const chosen = species ?? picked;
+    const spec = wild.bestiary.find(b => b.id === chosen);
+    if (!spec) return { ok: false, reason: 'no_species', balanceSilver: balSilver0, rounds: [] };
+
+    // 2) 怪物属性 ±15% 方差(同 spec 确保种子化)
+    const v = 0.85 + rng() * 0.3;
+    const monster: CombatStats = {
+      maxHp: Math.round(spec.maxHp * v), hp: Math.round(spec.maxHp * v),
+      atk: Math.round(spec.atk * v), def: spec.def, spirit: spec.spirit,
+      element: spec.element, skills: spec.skills ?? []
+    };
+
+    // 3) build WorldState slice → applyTx(battle)
+    const aStats = await this.combatOf(npcId);
+    const slice: WorldState = {
+      ...emptyWorld(),
+      npcs: { [npcId]: { ...rec, status: 'active' } },
+      combat: { [npcId]: aStats }
+    };
+    const tx: WorldTx = { type: 'battle', attackerId: npcId, defender: { kind: 'monster', species: chosen, stats: monster }, seed, now };
+    const { state: applied, events } = applyTx(slice, tx, new DefaultGameRules(() => undefined));
+
+    // 4) 读 battle 事件
+    const ev = events.find(e => (e as { kind?: string }).kind === 'battle') as
+      { kind: 'battle'; winnerId: string; loserId: string; rounds: BattleRound[] } | undefined;
+    if (!ev) return { ok: false, reason: 'no_battle', balanceSilver: balSilver0, rounds: [] };
+
+    // 5) 持久化猎手终局 HP/重伤
+    const appliedCombat = (applied.combat ?? {})[npcId];
+    if (appliedCombat) await this.setCombat(npcId, appliedCombat);
+
+    // 6) ②层落地:胜则 mint 产出(grantSilver) + 喂 food(satisfyNeed);emit 事件
+    const won = ev.winnerId === npcId;
+    let silver = 0, food = 0, balanceSilver = balSilver0;
+    if (won) {
+      silver = rollRange(spec.drops.silver, rng);
+      food = rollRange(spec.drops.food, rng);
+      if (silver > 0) balanceSilver = await this.grantSilver(npcId, silver);   // ②层 mint
+      if (food > 0) await this.satisfyNeed(npcId, this.eatAxis, food);
+    }
+
+    // 7) emit + return
+    this.emit(events, { now, tx });
+    return { ok: true, outcome: won ? 'win' : 'loss', yield: won ? { silver, food } : undefined, balanceSilver, rounds: ev.rounds };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 文件工具区:hunt 专用本地助手(就地定义,避免跨文件耦合/导出改动)
+// ---------------------------------------------------------------------------
+
+/** 同 builtins.ts steal 的种子派生 —— 就地定义(4 行),避免跨文件耦合/导出改动。 */
+function hashIds(now: number, a: string, b: string): number {
+  let h = 2166136261 ^ (now | 0);
+  const s = `${a}|${b}`;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h | 0;
+}
+
+function pickWeighted(table: Array<{ species: string; weight: number }>, rng: () => number): string {
+  const total = table.reduce((s, e) => s + e.weight, 0);
+  let r = rng() * total;
+  for (const e of table) { r -= e.weight; if (r <= 0) return e.species; }
+  return table[table.length - 1].species;
+}
+
+function rollRange(range: [number, number] | undefined, rng: () => number): number {
+  if (!range) return 0;
+  const [lo, hi] = range; return lo + Math.floor(rng() * (hi - lo + 1));
 }

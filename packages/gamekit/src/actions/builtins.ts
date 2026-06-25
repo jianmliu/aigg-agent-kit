@@ -360,8 +360,30 @@ export function builtinActions(opts: BuiltinActionsOpts = {}): WorldAction[] {
     }
   };
 
-  return [move, say, trade, pitch, give, recharge, research, socialize, help, steal];
+  return [move, say, trade, pitch, give, recharge, research, socialize, help, steal, huntAction];
 }
+
+/** 在野外狩猎妖怪换取 ②层资源产出。needs 告急或带产出意图时浮现。 */
+export const huntAction: WorldAction = {
+  id: 'hunt',
+  available(ctx) {
+    if (!ctx.inWild) return false;
+    if (ctx.productionIntent) return true;
+    // 任一需求轴低于 30 视为"饿了"——轴名不写死
+    return Object.values(ctx.needs ?? {}).some((v) => v < 30);
+  },
+  schema: {
+    description: '在野外狩猎妖怪,以战斗换取资源产出',
+    params: { type: 'object', properties: { species: { type: 'string' } } }
+  },
+  resolve(ctx, args) {
+    const species = (args as { species?: string })?.species;
+    return {
+      effects: [],
+      sharedWorldOp: (w) => w.hunt(ctx.npcId, species, ctx.now).then(() => undefined)
+    };
+  }
+};
 
 /** deterministic 32-bit hash of (now, thiefId, victimId) — seeds steal's 被抓 roll (replayable). */
 function hashIds(now: number, a: string, b: string): number {
