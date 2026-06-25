@@ -25,6 +25,9 @@ import type { AiggMemoryClient, PlanResult, DiscernmentResult } from '@onchainpa
 import { LocalLedgerActivator, ActivationError } from './aigg/activation';
 import type { Activator } from './aigg/activation';
 import { applyTx, relKey, type WorldState, type WorldEvent, type WorldTx, type MarketState, type PredictionMarket } from './stf/world-stf';
+import { deriveCombatStats } from './stf/derive-combat-stats';
+import type { CombatStats } from './stf/combat-types';
+import type { WildConfig } from './stf/wild-types';
 import { LlmInferenceOracle, type InferenceOracle } from './stf/inference-oracle';
 import type { SettlementLayer } from './stf/settlement-layer';
 import type { Effect, Attestation, RelationshipState } from '@onchainpal/npc-agent';
@@ -39,6 +42,7 @@ const ONCHAIN = { onchain: true } as const;
 const npcKey = (id: string) => `npc:${id}`;
 const gccKey = (id: string) => `npc:${id}:gcc`;
 const silverKey = (id: string) => `npc:${id}:silver`;   // off-chain 游戏货币(银两)账,与 gcc 并列但不带 ONCHAIN
+const combatKey = (id: string) => `npc:${id}:combat`;   // off-chain 战斗属性存档(不带 ONCHAIN,随世界层隔离)
 const diaryKey = (id: string) => `npc:${id}:diary`;   // off-chain 夜记 log (narrative, not a typed memory unit)
 const logKey = (id: string) => `npc:${id}:log`;       // off-chain 3rd-person system log (debug: say/move/pitch/dream)
 const riceKey = (id: string) => `npc:${id}:rice`;
@@ -227,6 +231,11 @@ export interface SharedWorldOptions {
    *   interjectMaxPerTalk=1(每次 talk 至多 1 次插话 → 至多 1 次额外推理/GCC 烧)
    */
   overhear?: { enabled?: boolean; maxListeners?: number; interject?: boolean; interjectMaxPerTalk?: number };
+  /**
+   * 野外遭遇配置(WildConfig)—— 哪些房间是野外、妖怪图鉴、各房间遭遇权重。
+   * 由 WorldDef.wild 注入;未注入 → hunt() 返回 no_wild_config。
+   */
+  wild?: WildConfig;
 }
 
 export class SharedWorld {
@@ -254,6 +263,8 @@ export class SharedWorld {
   /** 旁听配置 —— 全字段已落默认(见构造函数)。成本封顶双闸:maxListeners≤4 / interjectMaxPerTalk≤1。 */
   private readonly overhearCfg: { enabled: boolean; maxListeners: number; interject: boolean; interjectMaxPerTalk: number };
   private readonly onEvents?: (events: WorldEvent[], ctx: { now: number; tx?: WorldTx }) => void;
+  /** 野外遭遇配置(Task B1 WildConfig)——未注入时 hunt() 拒绝。 */
+  readonly wild?: WildConfig;
   /**
    * Draft NPCs — created but never funded. RAM-only by design: no store write,
    * so they vanish on restart and never appear in the persisted registry. Keyed
@@ -300,6 +311,7 @@ export class SharedWorld {
       interjectMaxPerTalk: opts.overhear?.interjectMaxPerTalk ?? 1,
     };
     this.onEvents = opts.onEvents;
+    this.wild = opts.wild;
     this.rooms = opts.rooms ?? ['广场', '酒馆', '集市'];
   }
 
@@ -375,6 +387,8 @@ export class SharedWorld {
     // 银两 = off-chain 游戏货币(无 ONCHAIN);默认底 10,让新 NPC 开局能买米。②层 → wkey。
     await this.store.set(W, this.wkey(silverKey(id)), input.startSilver ?? 10);
     await this.addToRegistry(id);
+    // 战斗属性初档 —— 新 NPC 建档时即从 background 派生全血战斗属性(Task B2)。
+    await this.setCombat(rec.id, deriveCombatStats(rec.background));
     void this.seedGoal(rec); // fire-and-forget: give the NPC a planning seed (kind=goal) so plan() has something to plan toward
     this.emit([{ kind: 'npcCreated', npcId: id, status: 'active' }], { now: Date.now() });
     return id;
@@ -1273,6 +1287,24 @@ export class SharedWorld {
   /** 读银两(off-chain 游戏货币)—— 永远只在 store,绝不读 settlementLayer/balances 链上 rail。 */
   async balanceSilver(npcId: string): Promise<number> {
     return (await this.getScoped<number>(silverKey(npcId))) ?? 0;
+  }
+
+  /**
+   * 读战斗属性(off-chain 战斗存档)—— 先查 store;若缺(老存档无 combat)则懒派生、持久化再返。
+   * 同 balanceSilver 模式:getScoped + wkey,不带 ONCHAIN。
+   */
+  async combatOf(npcId: string): Promise<CombatStats> {
+    const s = await this.getScoped<CombatStats>(combatKey(npcId));
+    if (s) return s;
+    const rec = await this.getNpc(npcId);
+    const seeded = deriveCombatStats(rec?.background ?? npcId);   // 懒派生兜底(老存档无 combat)
+    await this.store.set(W, this.wkey(combatKey(npcId)), seeded);
+    return seeded;
+  }
+
+  /** 写战斗属性(off-chain 战斗存档)—— hunt 结算后落盘重伤状态(hp/woundedUntil);不带 ONCHAIN。 */
+  async setCombat(npcId: string, stats: CombatStats): Promise<void> {
+    await this.store.set(W, this.wkey(combatKey(npcId)), stats);
   }
   /**
    * List NPCs. Persisted (activated) NPCs are visible to everyone; RAM drafts
