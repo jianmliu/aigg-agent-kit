@@ -12,4 +12,6 @@ assert.equal(shouldRefuse(sig(1, 0)).refuse, true, 'q over threshold → refuse'
 assert.equal(shouldRefuse(sig(0, -0.9)).refuse, true, 'trust under floor → refuse');
 assert.equal(shouldRefuse(sig(0, 0)).refuse, false, 'neutral → allow');
 assert.ok(shouldRefuse(sig(1, 0)).reason, 'refusal carries a reason');
+assert.equal(shouldRefuse(sig(0.5, 0)).refuse, false, 'q exactly at threshold → allow');
+assert.equal(shouldRefuse(sig(0, -0.5)).refuse, false, 'trust exactly at floor → allow');
 console.log('ALL GATE SMOKE TESTS PASSED ✅');

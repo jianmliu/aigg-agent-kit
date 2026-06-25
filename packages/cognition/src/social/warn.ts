@@ -18,7 +18,7 @@ export async function diffuseWarning(
   if (t < threshold) return { accepted: false, reason: `target distrusts source (trust ${t.toFixed(2)})` };
 
   await kernel.remember(corpusPath(to), {
-    slug: `warn-${corpusId(from)}-${topic}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80),
+    slug: `warn-${corpusId(from)}--${topic}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80),
     description: `${from} warned me that "${topic}" is a scam.`,
     match: [topic, 'trap'],
     kind: 'belief',
