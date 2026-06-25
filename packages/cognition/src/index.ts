@@ -1,1 +1,14 @@
-export const PACKAGE = '@onchainpal/cognition';
+/** @onchainpal/cognition — agent social cognition over the aigg-memory service.
+ *  A MemoryKernel port (Aigg/Fake adapters) + per-peer trust + warning diffusion +
+ *  a recall/learn/warn orchestrator. Model-free core; reflection is optional. */
+export * from './types';
+export { corpusId, corpusPath } from './id';
+export type { MemoryKernel, KV } from './kernel/port';
+export { InMemoryKV } from './kernel/kv';
+export { FakeKernel } from './kernel/fake';
+export { AiggMemoryKernel } from './kernel/aigg';
+export type { AiggMemoryKernelOpts } from './kernel/aigg';
+export { TrustLedger, TRUST_DELTAS } from './social/trust';
+export { diffuseWarning } from './social/warn';
+export { shouldRefuse } from './gate';
+export { Cognition } from './cognition';
