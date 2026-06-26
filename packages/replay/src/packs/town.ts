@@ -5,7 +5,7 @@ export const TOWN_PACK_ID = 'town@0';
 /** 0gtown's learn-loop. TEE attestations + 0G Storage roots are first-class. */
 export const townPack: ReplayPack = {
   id: TOWN_PACK_ID,
-  eventKinds: ['town.talk', 'town.pitch', 'town.refuse', 'town.anchor', 'town.belief', 'town.warn', 'town.trust', 'town.propose', 'town.vote', 'town.sanction', 'town.lend', 'town.default', 'town.rap'],
+  eventKinds: ['town.talk', 'town.pitch', 'town.refuse', 'town.anchor', 'town.belief', 'town.warn', 'town.trust', 'town.propose', 'town.vote', 'town.sanction', 'town.lend', 'town.default', 'town.rap', 'town.crime'],
   validateEvent(ev: Event, _ctx: ValidateCtx): string[] {
     const errs: string[] = [];
     const d = ev.data ?? {};
@@ -35,6 +35,9 @@ export const townPack: ReplayPack = {
     }
     if (ev.kind === 'town.rap' && (!d.offender || !d.kind)) {
       errs.push('town.rap requires data.offender and data.kind');
+    }
+    if (ev.kind === 'town.crime' && (!d.offender || !d.kind || typeof d.caught !== 'boolean')) {
+      errs.push('town.crime requires data.offender, data.kind, and a boolean data.caught');
     }
     return errs;
   },

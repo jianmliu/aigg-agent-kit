@@ -75,6 +75,7 @@ export function townLedger(run) {
       if (ev.kind === 'town.lend') credit.push({ kind: 'lend', lender: ev.actor, borrower: d.borrower, amount: d.amount, t: tick.t });
       if (ev.kind === 'town.default') credit.push({ kind: 'default', lender: d.lender, borrower: d.borrower, owed: d.owed, recovered: d.recovered, t: tick.t });
       if (ev.kind === 'town.rap') credit.push({ kind: 'rap', offender: d.offender, rapKind: d.kind, victim: d.victim, t: tick.t });
+      if (ev.kind === 'town.crime') credit.push({ kind: 'crime', offender: d.offender, crimeKind: d.kind, victim: d.victim, caught: d.caught, t: tick.t });
     }
   }
   return { npcs: [...npcs.values()], beliefs, warnings, guild, credit };
