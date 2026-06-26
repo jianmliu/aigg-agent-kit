@@ -10,7 +10,7 @@
  */
 import assert from 'node:assert/strict';
 import { applyTx, applyAll, stateRoot, emptyWorld, mulberry32, rollLuck, type WorldState, type WorldTx } from '../index';
-import { DefaultGameRules } from '@onchainpal/npc-agent';
+import { DefaultGameRules } from '@aigg/npc-agent';
 
 const rules = new DefaultGameRules(() => undefined);
 const seedWorld = (ids: string[], bal: number): WorldState => {

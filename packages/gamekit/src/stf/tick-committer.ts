@@ -13,7 +13,7 @@
  */
 import { keccak256, stringToHex, type Hex } from 'viem';
 import { stateRoot, type WorldState, type WorldEvent } from './world-stf';
-import type { AutoDriveClient } from '@onchainpal/npc-agent';
+import type { AutoDriveClient } from '@aigg/npc-agent';
 
 /** The per-tick blob archived to DSN (the REPLAY_SCHEMA tick frame / narrative body). */
 export interface TickBlob {

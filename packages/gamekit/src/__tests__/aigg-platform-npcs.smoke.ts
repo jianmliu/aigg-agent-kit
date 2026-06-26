@@ -1,14 +1,14 @@
 /**
- * Smoke test: AIGG platform NPCs in @onchainpal/gamekit.
+ * Smoke test: AIGG platform NPCs in @aigg/gamekit.
  * Verifies that seedAiggPlatformNpcs() works in any SharedWorld — simulating
  * how a second MUD game would include the platform NPCs.
  *
  * Uses a fake ai.gg server; no real network calls.
- * Run: pnpm --filter @onchainpal/gamekit test:platform
+ * Run: pnpm --filter @aigg/gamekit test:platform
  */
 import assert from 'node:assert/strict';
 import * as http from 'node:http';
-import { InMemoryStore, Metabolism, type InferenceProvider, type InferenceRequest, type InferenceResult } from '@onchainpal/npc-agent';
+import { InMemoryStore, Metabolism, type InferenceProvider, type InferenceRequest, type InferenceResult } from '@aigg/npc-agent';
 import { SharedWorld, seedAiggPlatformNpcs, AiggApiClient, menuRegistry, AIGG_NPC_IDS, AIGG_PLATFORM_NPC_IDS, AIGG_DEFAULT_ROOM, AIGG_DEFAULT_NAMES } from '../index';
 
 // ── Fake ai.gg ───────────────────────────────────────────────────────────────

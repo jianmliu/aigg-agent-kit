@@ -17,8 +17,8 @@
 import { createHash } from 'node:crypto';
 import { recoverMessageAddress, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { parseAgentIntent } from '@onchainpal/npc-agent';
-import type { Attestation, Effect } from '@onchainpal/npc-agent';
+import { parseAgentIntent } from '@aigg/npc-agent';
+import type { Attestation, Effect } from '@aigg/npc-agent';
 
 export const sha256Hex = (s: string): string => '0x' + createHash('sha256').update(s, 'utf8').digest('hex');
 

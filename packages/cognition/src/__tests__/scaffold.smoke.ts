@@ -1,4 +1,4 @@
-/** Scaffold smoke. Run: pnpm --filter @onchainpal/cognition test:scaffold */
+/** Scaffold smoke. Run: pnpm --filter @aigg/cognition test:scaffold */
 import assert from 'node:assert/strict';
 import { corpusId, corpusPath, FakeKernel, TrustLedger, Cognition, shouldRefuse, diffuseWarning, AiggMemoryKernel, InMemoryKV } from '../index';
 assert.equal(typeof corpusId, 'function', 'barrel exports corpusId');

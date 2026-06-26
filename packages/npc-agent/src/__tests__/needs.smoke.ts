@@ -2,7 +2,7 @@
  * Headless smoke for 需求多轴 (spec 里程碑①A): the pure, engine-neutral needs
  * functions — decay (缺轴补 100 / clamp 0)、urgent 排序、satisfy clamp 100、
  * summarizeNeeds 中文文案、DEFAULT_NEEDS_CONFIG 形。Zero deps, no store, no LLM.
- * Run: pnpm --filter @onchainpal/npc-agent test:needs
+ * Run: pnpm --filter @aigg/npc-agent test:needs
  */
 import assert from 'node:assert/strict';
 import {

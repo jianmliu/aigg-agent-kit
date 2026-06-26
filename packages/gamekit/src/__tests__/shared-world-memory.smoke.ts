@@ -7,12 +7,12 @@
  *   3. select/remember errors are swallowed — talk() never throws
  *   4. without a memory client, talk() behaves identically to before (regression)
  *
- * Run: pnpm --filter @onchainpal/gamekit test:memory
+ * Run: pnpm --filter @aigg/gamekit test:memory
  */
 import assert from 'node:assert/strict';
 import * as http from 'node:http';
-import { AiggMemoryClient } from '@onchainpal/npc-agent';
-import { InMemoryStore, Metabolism, type InferenceProvider, type InferenceRequest, type InferenceResult } from '@onchainpal/npc-agent';
+import { AiggMemoryClient } from '@aigg/npc-agent';
+import { InMemoryStore, Metabolism, type InferenceProvider, type InferenceRequest, type InferenceResult } from '@aigg/npc-agent';
 import { SharedWorld } from '../shared-world';
 
 // ---------------------------------------------------------------------------

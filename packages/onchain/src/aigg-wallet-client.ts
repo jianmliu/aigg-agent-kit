@@ -14,7 +14,7 @@
  *                           agent=npcIndex) — the one-owner-many-agents model
  *   - `{ path: number[] }`→ explicit all-hardened path
  */
-import type { TypedDataPayload } from '@onchainpal/npc-agent';
+import type { TypedDataPayload } from '@aigg/npc-agent';
 
 /**
  * KeySelector mirrors the wallet-svc `keySelector`. A bare string is the legacy

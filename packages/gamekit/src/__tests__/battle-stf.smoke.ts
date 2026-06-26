@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { applyTx, emptyWorld, type WorldState, type WorldTx } from '../stf/world-stf';
-import { DefaultGameRules } from '@onchainpal/npc-agent';
+import { DefaultGameRules } from '@aigg/npc-agent';
 import type { CombatStats } from '../stf/combat-types';
 
 const rules = new DefaultGameRules(() => undefined);

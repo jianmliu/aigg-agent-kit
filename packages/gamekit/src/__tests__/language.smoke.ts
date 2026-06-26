@@ -7,10 +7,10 @@
  *   - 'zh'/缺省 → 中文对白指令
  *   - 玩家覆盖优先于世界默认(en 世界里玩家选 zh → 中文指令)
  * 只管 say 输出语言,不改人设/房间文案。
- * Run: pnpm --filter @onchainpal/gamekit test:language
+ * Run: pnpm --filter @aigg/gamekit test:language
  */
 import assert from 'node:assert/strict';
-import { InMemoryStore, type InferenceProvider, type InferenceRequest, type InferenceResult } from '@onchainpal/npc-agent';
+import { InMemoryStore, type InferenceProvider, type InferenceRequest, type InferenceResult } from '@aigg/npc-agent';
 import { SharedWorld } from '../index';
 
 class CapturingProvider implements InferenceProvider {

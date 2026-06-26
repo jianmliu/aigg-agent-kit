@@ -1,4 +1,4 @@
-# @onchainpal/inference-proxy
+# @aigg/inference-proxy
 
 The server-side hop that lets the **browser** drive GCC-consuming NPC inference
 **without ever holding the ai.gg / sub2api credential**.
@@ -50,7 +50,7 @@ proxy only reads. Test: `node donations-smoke.mjs` (fake RPC).
 
 ## Local test
 ```bash
-pnpm --filter @onchainpal/inference-proxy smoke   # fake upstream, asserts forward + ledger
+pnpm --filter @aigg/inference-proxy smoke   # fake upstream, asserts forward + ledger
 ```
 
 ## AI.GG topology (read this first)

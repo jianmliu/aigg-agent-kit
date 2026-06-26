@@ -6,13 +6,13 @@
  * tier only — and that a cold replica recovers the whole world from DSN.
  *
  * A Map-backed fake AutoDriveClient stands in for ai3.storage (the real client is
- * createAutoDriveClient in game-engine). Run: pnpm --filter @onchainpal/gamekit test:dsn
+ * createAutoDriveClient in game-engine). Run: pnpm --filter @aigg/gamekit test:dsn
  */
 import assert from 'node:assert/strict';
 import {
   InMemoryStore, AutoDriveStore, TieredStore, Metabolism,
   type AutoDriveClient, type Scope, type InferenceProvider, type InferenceRequest, type InferenceResult
-} from '@onchainpal/npc-agent';
+} from '@aigg/npc-agent';
 import { SharedWorld } from '../shared-world';
 
 // SharedWorld's key scheme (mirrors shared-world.ts) — for asserting on the tiers.

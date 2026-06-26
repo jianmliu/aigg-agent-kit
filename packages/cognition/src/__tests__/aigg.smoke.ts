@@ -1,5 +1,5 @@
 /** Smoke for AiggMemoryKernel — wire-shape correctness via an injected fetch (no server).
- *  Run: pnpm --filter @onchainpal/cognition test:aigg */
+ *  Run: pnpm --filter @aigg/cognition test:aigg */
 import assert from 'node:assert/strict';
 import { AiggMemoryKernel } from '../kernel/aigg';
 

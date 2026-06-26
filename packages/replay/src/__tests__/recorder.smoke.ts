@@ -1,6 +1,6 @@
 /**
  * Smoke for createRecorder — roundtrip emit → validateRun ok, and guardrails.
- * Run: pnpm --filter @onchainpal/replay test:recorder
+ * Run: pnpm --filter @aigg/replay test:recorder
  */
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';

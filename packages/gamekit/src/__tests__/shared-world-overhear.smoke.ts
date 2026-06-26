@@ -21,12 +21,12 @@
  * 「稳定排序后的窗口/首个 rich」可控可断言 —— 排序后窗内 = A_rich,B_lean1,C_lean2,D_starve;
  * 窗外(被 maxListeners=4 截断) = E_lean3,F_lean4。
  *
- * Run: pnpm --filter @onchainpal/gamekit test:overhear
+ * Run: pnpm --filter @aigg/gamekit test:overhear
  */
 import assert from 'node:assert/strict';
 import * as http from 'node:http';
-import { AiggMemoryClient } from '@onchainpal/npc-agent';
-import { InMemoryStore, Metabolism, type InferenceProvider, type InferenceRequest, type InferenceResult } from '@onchainpal/npc-agent';
+import { AiggMemoryClient } from '@aigg/npc-agent';
+import { InMemoryStore, Metabolism, type InferenceProvider, type InferenceRequest, type InferenceResult } from '@aigg/npc-agent';
 import { SharedWorld } from '../shared-world';
 
 interface Call { path: string; body: Record<string, unknown> }

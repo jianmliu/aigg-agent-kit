@@ -1,4 +1,4 @@
-/** Smoke for the Polity proposal state machine. Run: pnpm --filter @onchainpal/cognition test:polity */
+/** Smoke for the Polity proposal state machine. Run: pnpm --filter @aigg/cognition test:polity */
 import assert from 'node:assert/strict';
 import { Polity } from '../governance/polity';
 

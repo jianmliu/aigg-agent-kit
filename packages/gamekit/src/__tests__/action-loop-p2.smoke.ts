@@ -34,7 +34,7 @@ import type { WorldEvent } from '../stf/world-stf';
 import {
   AiggMemoryClient, RelationshipMemory, InMemoryStore, Metabolism,
   type InferenceProvider, type InferenceResult, type NeedsConfig
-} from '@onchainpal/npc-agent';
+} from '@aigg/npc-agent';
 
 // ─────────────────────── fake STATEFUL memory server (教训 A) ───────────────────────
 // Records remember() writes per corpus; discernment(topic) returns q>0 iff that corpus

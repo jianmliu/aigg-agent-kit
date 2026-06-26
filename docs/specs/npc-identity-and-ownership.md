@@ -77,7 +77,7 @@ NFT 化引出的核心决策(产品/经济,非技术):
 
 ## 5. 架构不锁死:AgentWallet 抽象覆盖三者
 
-`@onchainpal/npc-agent` 的 `AgentWallet` 接缝(`address` / `balanceGcc()` / `authorizeSpend()`)对大脑隐藏了实现。它可由以下任一支撑:
+`@aigg/npc-agent` 的 `AgentWallet` 接缝(`address` / `balanceGcc()` / `authorizeSpend()`)对大脑隐藏了实现。它可由以下任一支撑:
 
 - **虚拟子账本**(游戏金库 + npcId 子余额)——最轻,demo 起步。
 - **EOA / 角色**——简单真钱包。

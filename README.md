@@ -34,10 +34,10 @@ them.
 ## Tests
 
 ```bash
-pnpm --filter @onchainpal/npc-agent test:smoke
-pnpm --filter @onchainpal/npc-agent test:metabolism
-pnpm --filter @onchainpal/onchain   test:tba
-pnpm --filter @onchainpal/onchain   test:facilitator
-pnpm --filter @onchainpal/inference-proxy smoke:donations
+pnpm --filter @aigg/npc-agent test:smoke
+pnpm --filter @aigg/npc-agent test:metabolism
+pnpm --filter @aigg/onchain   test:tba
+pnpm --filter @aigg/onchain   test:facilitator
+pnpm --filter @aigg/inference-proxy smoke:donations
 ( cd contracts/onchainpal-nfts && forge test )
 ```

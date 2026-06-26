@@ -1,6 +1,6 @@
 /**
  * Smoke — the shipped fixture must validate, guarding the schema contract.
- * Run: pnpm --filter @onchainpal/replay test:fixture
+ * Run: pnpm --filter @aigg/replay test:fixture
  */
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';

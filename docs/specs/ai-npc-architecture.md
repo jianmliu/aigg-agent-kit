@@ -1,7 +1,7 @@
 # AI NPC 架构规格（onchainpal）
 
 > 状态：草案 v0.1（2026-05）。本文档归档 AI NPC 系统的架构重设计与 AIGG/GCC 集成方向。
-> 对应代码已落地：P0 步骤 ①②（`@onchainpal/npc-agent` 契约包 + `PalAgentAdapter` 接缝）。
+> 对应代码已落地：P0 步骤 ①②（`@aigg/npc-agent` 契约包 + `PalAgentAdapter` 接缝）。
 > 相关项目记忆：`product-direction` / `ai-npc-gap` / `ai-npc-architecture` / `aigg-gcc-integration`。
 
 ---
@@ -52,7 +52,7 @@
 └──────────▲───────────────────────────────┬────────────────────┘
         perceptions                      effects / 台词
 ┌──────────┴───────────────────────────────▼────────────────────┐
-│  NPC Agent Runtime  ← @onchainpal/npc-agent，零 PAL 依赖         │
+│  NPC Agent Runtime  ← @aigg/npc-agent，零 PAL 依赖         │
 │   每 NPC: Persona / Memory / Goals / 决策策略                    │
 │   事件驱动（玩家靠近/说话/flag 变），非 500ms 轮询               │
 │   能力域：被允许 emit 哪些 Effect                                │
@@ -129,7 +129,7 @@ interface Agent { npcId; perceive(p: Perception): Promise<AgentIntent | null> }
 | 推理部署 | **托管 API**（`InferenceProvider` 抽象 → `AiggProvider`；dev 先指本地 Ollama） |
 | 自动游玩 bot | **抽成独立 dev 工具**（`dev-autopilot`），与 agent runtime 解耦 |
 | 上链节奏 | **先切接缝、本地优先**：`Store` 接口 + `onchain` 标记，v1 落 IndexedDB，后端日后换 MUD |
-| 引擎无关 | 做成**包边界**：`@onchainpal/npc-agent` 零 PAL 依赖 |
+| 引擎无关 | 做成**包边界**：`@aigg/npc-agent` 零 PAL 依赖 |
 
 ---
 
@@ -188,6 +188,6 @@ interface Agent { npcId; perceive(p: Perception): Promise<AgentIntent | null> }
 
 ## 8. 当前状态（2026-05）
 
-- **步骤 ①②✅ 完成**：`@onchainpal/npc-agent`（纯契约，零依赖、零行为）+ `game-engine/src/ai/pal-agent-adapter.ts`（唯一 PAL-aware 接缝）+ Big5 抽离到 `js/pal/big5.ts`。
+- **步骤 ①②✅ 完成**：`@aigg/npc-agent`（纯契约，零依赖、零行为）+ `game-engine/src/ai/pal-agent-adapter.ts`（唯一 PAL-aware 接缝）+ Big5 抽离到 `js/pal/big5.ts`。
 - 验证：playground vite 构建通过（回归）；npc-agent 隔离类型检查零错；改动文件类型检查零错；全量类型错误 28→27。
 - **接缝为纯接缝**：无 live 代码构造 `PalAgentAdapter` → 引擎运行时行为未变。驱动它的 agent runtime = 步骤 ③。

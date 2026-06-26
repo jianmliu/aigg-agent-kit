@@ -1,5 +1,5 @@
 {
-  "name": "@onchainpal/npc-agent",
+  "name": "@aigg/npc-agent",
   "version": "0.0.0",
   "private": true,
   "type": "module",

@@ -3,11 +3,11 @@
  * A fake HTTP server stands in for the Go wallet-svc (the real signature is
  * verified on the Go side; here we assert the WIRE + that RemoteAgentWallet drops
  * into the same AgentWallet seam used by X402GccEip3009Settlement).
- * Run: pnpm --filter @onchainpal/onchain test:remote
+ * Run: pnpm --filter @aigg/onchain test:remote
  */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { GccLedger, InMemoryStore, type InferenceUsage } from '@onchainpal/npc-agent';
+import { GccLedger, InMemoryStore, type InferenceUsage } from '@aigg/npc-agent';
 import { AiggWalletClient } from '../aigg-wallet-client';
 import { RemoteAgentWallet } from '../remote-agent-wallet';
 import { RemoteEip3009Settlement } from '../remote-eip3009-settlement';

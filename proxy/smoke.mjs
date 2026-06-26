@@ -1,7 +1,7 @@
 /**
  * Functional smoke for the inference proxy: spin a fake upstream, start the proxy
  * pointed at it, and exercise auth + forward + usage/gccCost + per-NPC ledger.
- * Run: node smoke.mjs   (or: pnpm --filter @onchainpal/inference-proxy smoke)
+ * Run: node smoke.mjs   (or: pnpm --filter @aigg/inference-proxy smoke)
  */
 import { createServer } from 'node:http';
 import assert from 'node:assert/strict';

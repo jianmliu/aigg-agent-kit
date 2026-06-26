@@ -1,4 +1,4 @@
-/** Smoke for LoanBook. Run: pnpm --filter @onchainpal/cognition test:lending */
+/** Smoke for LoanBook. Run: pnpm --filter @aigg/cognition test:lending */
 import assert from 'node:assert/strict';
 import { LoanBook } from '../society/lending';
 

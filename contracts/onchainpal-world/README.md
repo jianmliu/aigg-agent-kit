@@ -46,7 +46,7 @@ forge create src/KvWorld.sol:KvWorld --rpc-url http://127.0.0.1:8545 \
   --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --broadcast
 WORLD=<deployed> RPC_URL=http://127.0.0.1:8545 \
   PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
-  pnpm --filter @onchainpal/onchain test:kvworld-live
+  pnpm --filter @aigg/onchain test:kvworld-live
 ```
 
 ## Deploy

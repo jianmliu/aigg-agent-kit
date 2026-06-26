@@ -1,5 +1,5 @@
 /**
- * @onchainpal/gamekit/actions — the agent action loop (spec §4 P1).
+ * @aigg/gamekit/actions — the agent action loop (spec §4 P1).
  * ActionRegistry + the 5 收编 builtins. Re-exported from the package root.
  */
 export { ActionRegistry } from './registry';

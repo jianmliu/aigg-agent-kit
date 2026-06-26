@@ -16,12 +16,12 @@
  */
 import {
   DefaultGameRules, RelationshipMemory, resolveAddressing, DEFAULT_METABOLISM
-} from '@onchainpal/npc-agent';
+} from '@aigg/npc-agent';
 import type {
   Store, Scope, InferenceProvider, NpcPersona, Metabolism,
   SettlementStrategy, SettlementResult
-} from '@onchainpal/npc-agent';
-import type { AiggMemoryClient, PlanResult, DiscernmentResult } from '@onchainpal/npc-agent';
+} from '@aigg/npc-agent';
+import type { AiggMemoryClient, PlanResult, DiscernmentResult } from '@aigg/npc-agent';
 import { LocalLedgerActivator, ActivationError } from './aigg/activation';
 import type { Activator } from './aigg/activation';
 import { applyTx, emptyWorld, relKey, type WorldState, type WorldEvent, type WorldTx, type MarketState, type PredictionMarket } from './stf/world-stf';
@@ -31,11 +31,11 @@ import { mulberry32 } from './stf/luck';
 import type { WildConfig } from './stf/wild-types';
 import { LlmInferenceOracle, type InferenceOracle } from './stf/inference-oracle';
 import type { SettlementLayer } from './stf/settlement-layer';
-import type { Effect, Attestation, RelationshipState } from '@onchainpal/npc-agent';
+import type { Effect, Attestation, RelationshipState } from '@aigg/npc-agent';
 import {
   decayNeeds, satisfy, summarizeNeeds, urgent, DEFAULT_NEEDS_CONFIG,
   type NeedsState, type NeedsConfig
-} from '@onchainpal/npc-agent';
+} from '@aigg/npc-agent';
 import type { ActionContext } from './actions/registry';
 
 const W: Scope = { type: 'world' };

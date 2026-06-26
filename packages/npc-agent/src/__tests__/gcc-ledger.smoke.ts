@@ -1,6 +1,6 @@
 /**
  * Headless smoke test for GccLedger — the per-NPC virtual GCC sub-ledger.
- * Run: pnpm --filter @onchainpal/npc-agent test:gcc
+ * Run: pnpm --filter @aigg/npc-agent test:gcc
  */
 import assert from 'node:assert/strict';
 import { GccLedger, InMemoryStore, type InferenceUsage } from '../index';

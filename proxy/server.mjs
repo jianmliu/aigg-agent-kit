@@ -11,7 +11,7 @@
  * (http://sub2api:8080) so inference never leaves the box's network.
  *
  * Holds: the upstream token, the per-NPC GCC ledger, rate limiting. The browser
- * only gets a session/shared secret. (Mirrors @onchainpal/npc-agent GccLedger.)
+ * only gets a session/shared secret. (Mirrors @aigg/npc-agent GccLedger.)
  */
 import { createServer } from 'node:http';
 import { DonationsIndexer } from './donations.mjs';

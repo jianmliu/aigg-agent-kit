@@ -1,6 +1,6 @@
 /**
  * Smoke for the viewer's pure core (parse + panel selection + town ledger model).
- * Run: pnpm --filter @onchainpal/replay test:viewer
+ * Run: pnpm --filter @aigg/replay test:viewer
  */
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';

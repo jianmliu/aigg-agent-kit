@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import { verifyTypedData } from 'viem';
-import { GccLedger, InMemoryStore, type InferenceUsage } from '@onchainpal/npc-agent';
+import { GccLedger, InMemoryStore, type InferenceUsage } from '@aigg/npc-agent';
 import { EoaAgentWallet } from '../agent-eoa';
 import { X402GccSettlement, type FacilitatorClient, type GccPermitPayment, type NonceProvider } from '../x402-gcc-settlement';
 

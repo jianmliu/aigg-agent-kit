@@ -8,7 +8,7 @@
  * Run: npx tsx src/__tests__/pumptown-stf.smoke.ts
  */
 import assert from 'node:assert/strict';
-import { DefaultGameRules } from '@onchainpal/npc-agent';
+import { DefaultGameRules } from '@aigg/npc-agent';
 import { applyTx, applyAll, ammSwap, emptyWorld, stateRoot, type WorldState, type WorldTx } from '../stf/world-stf';
 
 const rules = new DefaultGameRules();

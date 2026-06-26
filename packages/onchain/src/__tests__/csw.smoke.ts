@@ -4,7 +4,7 @@
  * + /csw/erc1271; the passkey signer is a synthetic assertion (real WebAuthn runs
  * in the browser). Verifies the wire + that CswAgentWallet implements the
  * AgentWallet seam (address from CSW derivation, signature = ERC-1271 blob).
- * Run: pnpm --filter @onchainpal/onchain test:csw
+ * Run: pnpm --filter @aigg/onchain test:csw
  */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';

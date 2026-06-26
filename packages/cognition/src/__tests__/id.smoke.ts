@@ -1,4 +1,4 @@
-/** Smoke for the canonical id transform. Run: pnpm --filter @onchainpal/cognition test:id */
+/** Smoke for the canonical id transform. Run: pnpm --filter @aigg/cognition test:id */
 import assert from 'node:assert/strict';
 import { corpusId, corpusPath } from '../id';
 

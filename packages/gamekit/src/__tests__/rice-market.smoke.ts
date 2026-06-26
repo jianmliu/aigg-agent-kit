@@ -12,7 +12,7 @@
 import assert from 'node:assert/strict';
 import { SharedWorld } from '../shared-world';
 import { FairTick } from '../fair';
-import { InMemoryStore, Metabolism, type InferenceProvider, type InferenceResult } from '@onchainpal/npc-agent';
+import { InMemoryStore, Metabolism, type InferenceProvider, type InferenceResult } from '@aigg/npc-agent';
 
 class Scripted implements InferenceProvider {
   readonly id = 'scripted';

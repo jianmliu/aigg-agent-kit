@@ -1,6 +1,6 @@
 /**
  * Smoke for PackRegistry + defaultRegistry.
- * Run: pnpm --filter @onchainpal/replay test:registry
+ * Run: pnpm --filter @aigg/replay test:registry
  */
 import assert from 'node:assert/strict';
 import { PackRegistry, defaultRegistry } from '../registry';

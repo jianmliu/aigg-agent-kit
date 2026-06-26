@@ -1,4 +1,4 @@
-/** @onchainpal/cognition — agent social cognition over the aigg-memory service.
+/** @aigg/cognition — agent social cognition over the aigg-memory service.
  *  A MemoryKernel port (Aigg/Fake adapters) + per-peer trust + warning diffusion +
  *  a recall/learn/warn orchestrator. Model-free core; reflection is optional. */
 export * from './types';

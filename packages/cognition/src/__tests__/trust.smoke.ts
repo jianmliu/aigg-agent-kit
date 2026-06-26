@@ -1,4 +1,4 @@
-/** Smoke for TrustLedger. Run: pnpm --filter @onchainpal/cognition test:trust */
+/** Smoke for TrustLedger. Run: pnpm --filter @aigg/cognition test:trust */
 import assert from 'node:assert/strict';
 import { TrustLedger, TRUST_DELTAS } from '../social/trust';
 import { InMemoryKV } from '../kernel/kv';

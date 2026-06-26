@@ -1,4 +1,4 @@
-/** Smoke for shouldRefuse. Run: pnpm --filter @onchainpal/cognition test:gate */
+/** Smoke for shouldRefuse. Run: pnpm --filter @aigg/cognition test:gate */
 import assert from 'node:assert/strict';
 import { shouldRefuse } from '../gate';
 import type { CognitiveSignal } from '../types';

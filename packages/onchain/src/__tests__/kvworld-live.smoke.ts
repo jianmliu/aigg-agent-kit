@@ -28,7 +28,7 @@ import {
   type Hex, type PublicClient, type WalletClient, type Account,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { InMemoryStore, AutoDriveStore, type AutoDriveClient, type Scope } from '@onchainpal/npc-agent';
+import { InMemoryStore, AutoDriveStore, type AutoDriveClient, type Scope } from '@aigg/npc-agent';
 import { MudStore, type MudKvClient } from '../mud-store';
 
 // ── inline viem KvClient — mirrors mud-demo's MudWorldKvClient ABI exactly ──────

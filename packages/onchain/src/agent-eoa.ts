@@ -10,7 +10,7 @@
  */
 import { mnemonicToAccount } from 'viem/accounts';
 import { keccak256, toBytes } from 'viem';
-import type { AgentWallet, TypedDataPayload } from '@onchainpal/npc-agent';
+import type { AgentWallet, TypedDataPayload } from '@aigg/npc-agent';
 
 /** Deterministic uint31 BIP-44 address_index from an npcId (collision-negligible). */
 export function npcAddressIndex(npcId: string): number {

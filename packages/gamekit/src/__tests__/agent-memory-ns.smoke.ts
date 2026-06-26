@@ -12,7 +12,7 @@
  */
 import assert from 'node:assert/strict';
 import { SharedWorld } from '../shared-world';
-import { InMemoryStore, AiggMemoryClient, Metabolism, type InferenceProvider, type InferenceResult, type Scope } from '@onchainpal/npc-agent';
+import { InMemoryStore, AiggMemoryClient, Metabolism, type InferenceProvider, type InferenceResult, type Scope } from '@aigg/npc-agent';
 
 class Scripted implements InferenceProvider {
   readonly id = 'scripted';

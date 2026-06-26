@@ -1,4 +1,4 @@
-/** Smoke for the Cognition orchestrator. Run: pnpm --filter @onchainpal/cognition test:cognition */
+/** Smoke for the Cognition orchestrator. Run: pnpm --filter @aigg/cognition test:cognition */
 import assert from 'node:assert/strict';
 import { FakeKernel } from '../kernel/fake';
 import { TrustLedger, TRUST_DELTAS } from '../social/trust';

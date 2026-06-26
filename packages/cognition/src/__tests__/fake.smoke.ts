@@ -1,5 +1,5 @@
 /** Smoke for FakeKernel — the hermetic backend the rest of the package tests against.
- *  Run: pnpm --filter @onchainpal/cognition test:fake */
+ *  Run: pnpm --filter @aigg/cognition test:fake */
 import assert from 'node:assert/strict';
 import { FakeKernel } from '../kernel/fake';
 

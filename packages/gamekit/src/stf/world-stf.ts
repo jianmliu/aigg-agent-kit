@@ -14,7 +14,7 @@
  * (AgentRuntime: "offchain-reasoning / deterministic-mutation boundary").
  */
 import { createHash } from 'node:crypto';
-import type { Effect, GameRules, RuleContext, RelationshipState } from '@onchainpal/npc-agent';
+import type { Effect, GameRules, RuleContext, RelationshipState } from '@aigg/npc-agent';
 import type { NpcRecord } from '../shared-world';
 import { resolveBattle } from './resolve-battle';
 import { PLACEHOLDER_RESTRAINT, type CombatStats, type Combatant, type BattleRound } from './combat-types';

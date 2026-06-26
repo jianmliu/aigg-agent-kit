@@ -13,7 +13,7 @@
  * Per-NPC AgentWallet (EOA, BIP-44 derived) signs the EIP-3009
  * TransferWithAuthorization. The facilitator submits it on Base mainnet.
  */
-import type { AgentWallet, InferenceUsage, SettlementStrategy, SettlementResult, GccLedger, TypedDataPayload } from '@onchainpal/npc-agent';
+import type { AgentWallet, InferenceUsage, SettlementStrategy, SettlementResult, GccLedger, TypedDataPayload } from '@aigg/npc-agent';
 import type { AiggFacilitatorClient, X402SettleResponse, X402VerifyResponse } from './aigg-facilitator-client';
 import { keccak256, toBytes } from 'viem';
 

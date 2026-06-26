@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import { PlanningOracle, type InferenceOracle, type OracleInput, type OracleOutput } from '../index';
-import type { Effect } from '@onchainpal/npc-agent';
+import type { Effect } from '@aigg/npc-agent';
 
 const mkInner = (delta: number, cost: number): InferenceOracle => ({
   async produce(): Promise<OracleOutput> {

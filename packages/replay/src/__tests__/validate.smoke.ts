@@ -1,6 +1,6 @@
 /**
  * Smoke for validateRun — core invariants + pack validation.
- * Run: pnpm --filter @onchainpal/replay test:validate
+ * Run: pnpm --filter @aigg/replay test:validate
  */
 import assert from 'node:assert/strict';
 import { validateRun } from '../validate';

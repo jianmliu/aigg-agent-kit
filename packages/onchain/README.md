@@ -1,14 +1,14 @@
-# @onchainpal/onchain
+# @aigg/onchain
 
 Engine-neutral **on-chain economy kit for AI agents** — the reusable "wallet +
 settlement" half of the NPC agent stack. Sits on top of
-[`@onchainpal/npc-agent`](../npc-agent)'s `AgentWallet` / `SettlementStrategy`
+[`@aigg/npc-agent`](../npc-agent)'s `AgentWallet` / `SettlementStrategy`
 seams. **Zero game / PAL dependencies** — usable by any agent app that wants
 per-agent on-chain identity + GCC payments.
 
 > Node / service-side: it holds key material and uses `viem`. Don't import it into
 > a browser bundle — the browser drives inference through the proxy and reads
-> balances via RPC. (This package is intentionally not part of `@onchainpal/npc-agent`,
+> balances via RPC. (This package is intentionally not part of `@aigg/npc-agent`,
 > which stays browser-safe and dependency-light.)
 
 ## What's in it
@@ -24,10 +24,10 @@ per-agent on-chain identity + GCC payments.
 ## Tests
 
 ```bash
-pnpm --filter @onchainpal/onchain test:eoa
-pnpm --filter @onchainpal/onchain test:tba          # TBA addr == live registry
-pnpm --filter @onchainpal/onchain test:settlement
-pnpm --filter @onchainpal/onchain test:facilitator  # exact x402 wire + sig verify
+pnpm --filter @aigg/onchain test:eoa
+pnpm --filter @aigg/onchain test:tba          # TBA addr == live registry
+pnpm --filter @aigg/onchain test:settlement
+pnpm --filter @aigg/onchain test:facilitator  # exact x402 wire + sig verify
 ```
 
 ## Tools
@@ -35,10 +35,10 @@ pnpm --filter @onchainpal/onchain test:facilitator  # exact x402 wire + sig veri
 ```bash
 # real /verify against an AIGG facilitator (no on-chain tx)
 AIGG_FACILITATOR_URL=… AIGG_FACILITATOR_TOKEN=… NPC_MNEMONIC=… \
-  pnpm --filter @onchainpal/onchain verify:facilitator
+  pnpm --filter @aigg/onchain verify:facilitator
 
 # print each NPC's TBA address + live GCC balance
-NFT_ADDRESS=0x… pnpm --filter @onchainpal/onchain show:tba
+NFT_ADDRESS=0x… pnpm --filter @aigg/onchain show:tba
 ```
 
 ## Reuse / extraction

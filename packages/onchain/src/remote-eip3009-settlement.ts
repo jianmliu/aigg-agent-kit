@@ -7,7 +7,7 @@
  * Contrast with X402GccEip3009Settlement (TS builds the payload + signs via a
  * local/dev AgentWallet). Same SettlementStrategy seam.
  */
-import type { InferenceUsage, SettlementStrategy, SettlementResult, GccLedger } from '@onchainpal/npc-agent';
+import type { InferenceUsage, SettlementStrategy, SettlementResult, GccLedger } from '@aigg/npc-agent';
 import type { AiggWalletClient } from './aigg-wallet-client';
 import type { AiggFacilitatorClient, X402SettleResponse } from './aigg-facilitator-client';
 

@@ -1,4 +1,4 @@
-# @onchainpal/replay
+# @aigg/replay
 
 Unified, pack-extensible replay for the ai.gg family. A domain-neutral core
 (`replay@1`) plus a Pack Registry: a world registers a pack, and the recorder,
@@ -14,7 +14,7 @@ validator, and viewer all consult the same registry — the core never changes.
 ## Use
 
 ```ts
-import { createRecorder, validateFile } from '@onchainpal/replay';
+import { createRecorder, validateFile } from '@aigg/replay';
 
 const rec = createRecorder({ path: 'runs/run.jsonl', packs: ['town@0'] });
 rec.run({ runId, entities, map, meta });
@@ -34,4 +34,4 @@ up their panels; unknown packs degrade to core-only.
 
 ## Tests
 
-`pnpm --filter @onchainpal/replay test:scaffold|registry|town|econ|validate|recorder|fixture|viewer`
+`pnpm --filter @aigg/replay test:scaffold|registry|town|econ|validate|recorder|fixture|viewer`

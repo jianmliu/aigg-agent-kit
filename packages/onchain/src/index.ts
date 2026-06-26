@@ -1,8 +1,8 @@
 /**
- * @onchainpal/onchain — engine-neutral on-chain economy kit for AI agents.
+ * @aigg/onchain — engine-neutral on-chain economy kit for AI agents.
  *
  * The reusable "wallet + settlement" half of the NPC agent stack, sitting on top
- * of @onchainpal/npc-agent's AgentWallet / SettlementStrategy seams. Zero game/PAL
+ * of @aigg/npc-agent's AgentWallet / SettlementStrategy seams. Zero game/PAL
  * deps — usable by any agent app that wants per-agent identity + GCC payments.
  *
  * Node/service-side (holds keys, uses viem). Do NOT import into a browser bundle

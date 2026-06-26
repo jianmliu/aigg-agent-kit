@@ -1,10 +1,10 @@
 {
-  "name": "@onchainpal/gamekit",
+  "name": "@aigg/gamekit",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "sideEffects": false,
-  "description": "Game-design toolkit: compose shared, AI-NPC-populated text worlds on the @onchainpal/npc-agent primitives. Store-agnostic (local or on-chain via MudStore).",
+  "description": "Game-design toolkit: compose shared, AI-NPC-populated text worlds on the @aigg/npc-agent primitives. Store-agnostic (local or on-chain via MudStore).",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
@@ -38,7 +38,7 @@
     "test:selffund": "tsx src/__tests__/hunt-selffund.smoke.ts"
   },
   "dependencies": {
-    "@onchainpal/npc-agent": "workspace:*",
+    "@aigg/npc-agent": "workspace:*",
     "viem": "^2.51.3"
   },
   "devDependencies": {

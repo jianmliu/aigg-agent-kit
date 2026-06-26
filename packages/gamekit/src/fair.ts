@@ -24,7 +24,7 @@
  * (gossip, scammer, listener) warning fires once (street-talk saturates).
  */
 import type { SharedWorld } from './shared-world';
-import type { DiscernmentResult } from '@onchainpal/npc-agent';
+import type { DiscernmentResult } from '@aigg/npc-agent';
 
 export interface FairActor {
   npcId: string;

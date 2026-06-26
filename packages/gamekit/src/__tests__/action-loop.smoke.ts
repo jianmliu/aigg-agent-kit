@@ -21,9 +21,9 @@ import { SharedWorld } from '../shared-world';
 import { FairTick } from '../fair';
 import { ActionRegistry, builtinActions } from '../actions';
 import { ScriptedActionOracle } from '../stf/action-oracle';
-import { parseActionChoice } from '@onchainpal/npc-agent';
+import { parseActionChoice } from '@aigg/npc-agent';
 import type { WorldEvent } from '../stf/world-stf';
-import { InMemoryStore, Metabolism, type InferenceProvider, type InferenceResult } from '@onchainpal/npc-agent';
+import { InMemoryStore, Metabolism, type InferenceProvider, type InferenceResult } from '@aigg/npc-agent';
 
 class Scripted implements InferenceProvider {
   readonly id = 'scripted';

@@ -1,7 +1,7 @@
 /**
  * Smoke for the econ@0 stub pack — proves the neutral core can name the
  * pumptown/replay@0 event vocabulary. Full validation is deferred (monopoly's cycle).
- * Run: pnpm --filter @onchainpal/replay test:econ
+ * Run: pnpm --filter @aigg/replay test:econ
  */
 import assert from 'node:assert/strict';
 import { econPack, ECON_PACK_ID } from '../packs/econ';

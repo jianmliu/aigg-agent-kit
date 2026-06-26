@@ -2,7 +2,7 @@
  * Headless smoke for cognitive metabolism (I-phase): GCC balance → model tier /
  * can-think, and the LlmAgent wiring (starving NPC emits a scripted line and
  * never calls the LLM → no GCC burn).
- * Run: pnpm --filter @onchainpal/npc-agent test:metabolism
+ * Run: pnpm --filter @aigg/npc-agent test:metabolism
  */
 import assert from 'node:assert/strict';
 import {

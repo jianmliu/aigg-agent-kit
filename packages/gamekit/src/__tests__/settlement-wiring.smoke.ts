@@ -11,7 +11,7 @@
  * Run: tsx src/__tests__/settlement-wiring.smoke.ts
  */
 import assert from 'node:assert/strict';
-import { InMemoryStore, Metabolism, type InferenceProvider, type InferenceRequest, type InferenceResult, type SettlementStrategy, type SettlementResult, type InferenceUsage } from '@onchainpal/npc-agent';
+import { InMemoryStore, Metabolism, type InferenceProvider, type InferenceRequest, type InferenceResult, type SettlementStrategy, type SettlementResult, type InferenceUsage } from '@aigg/npc-agent';
 import { SharedWorld } from '../shared-world';
 
 class PaidProvider implements InferenceProvider {

@@ -1,6 +1,6 @@
 /**
- * @onchainpal/gamekit — game-design toolkit for shared, AI-NPC-populated text
- * worlds, built on @onchainpal/npc-agent. Store-agnostic: local (InMemoryStore)
+ * @aigg/gamekit — game-design toolkit for shared, AI-NPC-populated text
+ * worlds, built on @aigg/npc-agent. Store-agnostic: local (InMemoryStore)
  * or shared on-chain (MudStore over a Lattice MUD World).
  *
  * Also exports the AIGG platform NPC layer: fixed menu-based characters

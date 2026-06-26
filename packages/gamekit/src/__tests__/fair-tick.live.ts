@@ -17,7 +17,7 @@
  */
 import { SharedWorld } from '../shared-world';
 import { FairTick } from '../fair';
-import { InMemoryStore, AiggMemoryClient, Metabolism, OllamaProvider } from '@onchainpal/npc-agent';
+import { InMemoryStore, AiggMemoryClient, Metabolism, OllamaProvider } from '@aigg/npc-agent';
 
 const MEMORY_URL = process.env.MEMORY_URL ?? 'http://localhost:8814';
 const TICKS = Number(process.env.FAIR_TICKS ?? 6);

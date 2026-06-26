@@ -1,4 +1,4 @@
-/** Smoke for the crime primitive. Run: pnpm --filter @onchainpal/cognition test:crime */
+/** Smoke for the crime primitive. Run: pnpm --filter @aigg/cognition test:crime */
 import assert from 'node:assert/strict';
 import { FakeKernel } from '../kernel/fake';
 import { TrustLedger } from '../social/trust';

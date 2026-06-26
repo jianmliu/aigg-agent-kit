@@ -19,7 +19,7 @@ import { SharedWorld } from '../shared-world';
 import {
   InMemoryStore, TieredStore, crossServerStable, Metabolism, RelationshipMemory,
   type Store, type Scope, type WriteOptions, type InferenceProvider, type InferenceResult, type NeedsConfig
-} from '@onchainpal/npc-agent';
+} from '@aigg/npc-agent';
 
 const W: Scope = { type: 'world' };
 const close = (a: number, b: number, eps = 1e-9) => Math.abs(a - b) < eps;

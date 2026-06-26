@@ -1,5 +1,5 @@
 /** Smoke for the belief-gating bridge (composes ②a Cognition + Polity).
- *  Run: pnpm --filter @onchainpal/cognition test:governance */
+ *  Run: pnpm --filter @aigg/cognition test:governance */
 import assert from 'node:assert/strict';
 import { FakeKernel } from '../kernel/fake';
 import { TrustLedger } from '../social/trust';

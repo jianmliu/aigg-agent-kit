@@ -10,8 +10,8 @@
  * Run: tsx src/__tests__/world-stf.smoke.ts
  */
 import assert from 'node:assert/strict';
-import { DefaultGameRules } from '@onchainpal/npc-agent';
-import type { Effect, NpcPersona, InferenceProvider, InferenceRequest, InferenceResult } from '@onchainpal/npc-agent';
+import { DefaultGameRules } from '@aigg/npc-agent';
+import type { Effect, NpcPersona, InferenceProvider, InferenceRequest, InferenceResult } from '@aigg/npc-agent';
 import { applyTx, applyAll, stateRoot, emptyWorld, relKey, type WorldTx, type WorldState } from '../stf/world-stf';
 import { LlmInferenceOracle, type OracleInput } from '../stf/inference-oracle';
 

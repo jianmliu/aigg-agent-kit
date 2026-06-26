@@ -1,4 +1,4 @@
-# @onchainpal/cognition
+# @aigg/cognition
 
 Agent social cognition over the external [aigg-memory](https://github.com/jianmliu/aigg-memory) service.
 A `MemoryKernel` port (memory→belief→reflection), per-peer **trust**, and **warning
@@ -18,7 +18,7 @@ diffusion** — one NPC learns a scam and warns another, who then refuses it unb
 ## Use
 
 ```ts
-import { Cognition, TrustLedger, AiggMemoryKernel, FakeKernel, shouldRefuse } from '@onchainpal/cognition';
+import { Cognition, TrustLedger, AiggMemoryKernel, FakeKernel, shouldRefuse } from '@aigg/cognition';
 
 const kernel = process.env.MEMORY_URL ? new AiggMemoryKernel({ baseUrl: process.env.MEMORY_URL }) : new FakeKernel();
 const cog = new Cognition(kernel, new TrustLedger());
@@ -34,4 +34,4 @@ Two invariants (validated against aigg-memory): discernment runs in `mode:'text'
 
 ## Tests
 
-`pnpm --filter @onchainpal/cognition test:{scaffold,id,fake,trust,warn,gate,cognition,aigg}`
+`pnpm --filter @aigg/cognition test:{scaffold,id,fake,trust,warn,gate,cognition,aigg}`

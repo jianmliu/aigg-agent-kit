@@ -1,6 +1,6 @@
 /**
  * Smoke for the town@0 pack's validation invariants.
- * Run: pnpm --filter @onchainpal/replay test:town
+ * Run: pnpm --filter @aigg/replay test:town
  */
 import assert from 'node:assert/strict';
 import type { Event, ValidateCtx, RunHeader } from '../schema';

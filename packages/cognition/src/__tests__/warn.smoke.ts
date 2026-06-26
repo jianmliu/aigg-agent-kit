@@ -1,4 +1,4 @@
-/** Smoke for diffuseWarning (trust-gated peer belief implant). Run: pnpm --filter @onchainpal/cognition test:warn */
+/** Smoke for diffuseWarning (trust-gated peer belief implant). Run: pnpm --filter @aigg/cognition test:warn */
 import assert from 'node:assert/strict';
 import { FakeKernel } from '../kernel/fake';
 import { TrustLedger, TRUST_DELTAS } from '../social/trust';

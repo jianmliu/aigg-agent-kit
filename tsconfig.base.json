@@ -14,17 +14,17 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@onchainpal/npc-agent": ["packages/npc-agent/src/index.ts"],
-      "@onchainpal/npc-agent/*": ["packages/npc-agent/src/*"],
-      "@onchainpal/onchain": ["packages/onchain/src/index.ts"],
-      "@onchainpal/onchain/*": ["packages/onchain/src/*"]
+      "@aigg/npc-agent": ["packages/npc-agent/src/index.ts"],
+      "@aigg/npc-agent/*": ["packages/npc-agent/src/*"],
+      "@aigg/onchain": ["packages/onchain/src/index.ts"],
+      "@aigg/onchain/*": ["packages/onchain/src/*"]
 ,
-      "@onchainpal/gamekit": ["packages/gamekit/src/index.ts"],
-      "@onchainpal/gamekit/*": ["packages/gamekit/src/*"],
-      "@onchainpal/replay": ["packages/replay/src/index.ts"],
-      "@onchainpal/replay/*": ["packages/replay/src/*"],
-      "@onchainpal/cognition": ["packages/cognition/src/index.ts"],
-      "@onchainpal/cognition/*": ["packages/cognition/src/*"]
+      "@aigg/gamekit": ["packages/gamekit/src/index.ts"],
+      "@aigg/gamekit/*": ["packages/gamekit/src/*"],
+      "@aigg/replay": ["packages/replay/src/index.ts"],
+      "@aigg/replay/*": ["packages/replay/src/*"],
+      "@aigg/cognition": ["packages/cognition/src/index.ts"],
+      "@aigg/cognition/*": ["packages/cognition/src/*"]
     }
   },
   "include": ["packages"]

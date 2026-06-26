@@ -14,7 +14,7 @@
  *
  * Service-side only (uses the AgentWallet's key path); not in the browser bundle.
  */
-import type { AgentWallet, InferenceUsage, SettlementStrategy, SettlementResult, GccLedger, TypedDataPayload } from '@onchainpal/npc-agent';
+import type { AgentWallet, InferenceUsage, SettlementStrategy, SettlementResult, GccLedger, TypedDataPayload } from '@aigg/npc-agent';
 
 export interface GccSettlementConfig {
   /** GCC ERC-20 contract address (Base). */

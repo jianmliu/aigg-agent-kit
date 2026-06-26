@@ -7,7 +7,7 @@
  *
  * Construct via the async factory `create()` because the address must be fetched.
  */
-import type { AgentWallet, TypedDataPayload } from '@onchainpal/npc-agent';
+import type { AgentWallet, TypedDataPayload } from '@aigg/npc-agent';
 import { AiggWalletClient, type KeySelector } from './aigg-wallet-client';
 
 export interface RemoteAgentWalletOptions {

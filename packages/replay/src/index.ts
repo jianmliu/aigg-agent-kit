@@ -1,5 +1,5 @@
 /**
- * @onchainpal/replay — unified, pack-extensible replay.
+ * @aigg/replay — unified, pack-extensible replay.
  * A domain-neutral core (replay@1) + a Pack Registry. Worlds register packs;
  * the recorder, validator, and viewer all consult the same registry.
  */

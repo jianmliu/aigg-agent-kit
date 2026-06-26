@@ -16,8 +16,8 @@
  * on a generic key→value table, or per-concept tables); a fake one backs tests.
  */
 import { keccak256, toBytes } from 'viem';
-import { InMemoryStore } from '@onchainpal/npc-agent';
-import type { Store, Scope, WriteOptions } from '@onchainpal/npc-agent';
+import { InMemoryStore } from '@aigg/npc-agent';
+import type { Store, Scope, WriteOptions } from '@aigg/npc-agent';
 
 /** Minimal generic key→value surface over a MUD World (records as JSON strings). */
 export interface MudKvClient {

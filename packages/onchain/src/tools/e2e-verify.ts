@@ -22,7 +22,7 @@
  *   ssh -fN -L 8091:localhost:8091  ubuntu@<node1>
  *   ssh -fN -L 18081:localhost:18081 ubuntu@<node2>
  *
- * Run: pnpm --filter @onchainpal/onchain e2e:verify
+ * Run: pnpm --filter @aigg/onchain e2e:verify
  */
 import { AiggWalletClient, type KeySelector } from '../aigg-wallet-client';
 import { AiggFacilitatorClient } from '../aigg-facilitator-client';

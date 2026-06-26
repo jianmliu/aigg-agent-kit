@@ -11,8 +11,8 @@
  * ScriptedActionOracle lets smokes pin the choice (fixed/rotating) so the
  * 选→校验→resolve→STF chain runs with zero LLM, fully replayable (教训 A/E).
  */
-import { parseActionChoice, summarizeNeeds } from '@onchainpal/npc-agent';
-import type { InferenceProvider, InferenceResult, Attestation } from '@onchainpal/npc-agent';
+import { parseActionChoice, summarizeNeeds } from '@aigg/npc-agent';
+import type { InferenceProvider, InferenceResult, Attestation } from '@aigg/npc-agent';
 import type { ActionContext, ChosenAction } from '../actions/registry';
 
 export interface ActionOracleInput {

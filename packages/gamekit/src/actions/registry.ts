@@ -15,7 +15,7 @@
  *     STF only ever APPLIES — the LLM never runs inside applyTx, so fraud
  *     proofs are unchanged.
  */
-import type { Effect, NpcPersona, NeedsState, RelationshipState } from '@onchainpal/npc-agent';
+import type { Effect, NpcPersona, NeedsState, RelationshipState } from '@aigg/npc-agent';
 import type { NpcSummary } from '../shared-world';
 import type { SharedWorld } from '../shared-world';
 

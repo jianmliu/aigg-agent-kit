@@ -1,10 +1,10 @@
 {
-  "name": "@onchainpal/onchain",
+  "name": "@aigg/onchain",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "sideEffects": false,
-  "description": "Engine-neutral on-chain economy kit for AI agents: per-agent EOA (BIP-44), ERC-6551 TBA wallets, x402/EIP-3009 GCC settlement, AIGG facilitator client. Depends on @onchainpal/npc-agent (the brain) + viem; zero game/PAL deps.",
+  "description": "Engine-neutral on-chain economy kit for AI agents: per-agent EOA (BIP-44), ERC-6551 TBA wallets, x402/EIP-3009 GCC settlement, AIGG facilitator client. Depends on @aigg/npc-agent (the brain) + viem; zero game/PAL deps.",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
@@ -27,7 +27,7 @@
     "test:kvworld-live": "tsx src/__tests__/kvworld-live.smoke.ts"
   },
   "dependencies": {
-    "@onchainpal/npc-agent": "workspace:*",
+    "@aigg/npc-agent": "workspace:*",
     "viem": "^2.51.3"
   },
   "devDependencies": {

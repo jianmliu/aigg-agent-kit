@@ -9,10 +9,10 @@
  *   TickCommitter archives the tick blob (fake drive), anchors stateRoot +
  *   eventsHash (fake anchor), and verifyTickBlob proves tamper-evidence.
  *
- * Run: pnpm --filter @onchainpal/gamekit test:tick
+ * Run: pnpm --filter @aigg/gamekit test:tick
  */
 import assert from 'node:assert/strict';
-import { InMemoryStore, type InferenceProvider, type InferenceRequest, type InferenceResult } from '@onchainpal/npc-agent';
+import { InMemoryStore, type InferenceProvider, type InferenceRequest, type InferenceResult } from '@aigg/npc-agent';
 import {
   SharedWorld, TickCommitter, verifyTickBlob, stateRoot,
   type WorldEvent, type TickBlob

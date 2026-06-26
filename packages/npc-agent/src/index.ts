@@ -1,5 +1,5 @@
 /**
- * @onchainpal/npc-agent — engine-neutral NPC agent runtime.
+ * @aigg/npc-agent — engine-neutral NPC agent runtime.
  *
  * Zero PAL / game-engine dependencies BY DESIGN: the brain must not know which
  * game skin it runs in. Hosts (e.g. the PAL adapter in game-engine) implement
@@ -57,7 +57,7 @@ export type { ZeroGBrokerProviderOptions, ZeroGBrokerWalletConfig, ZeroGBroker }
 // NOTE: ClaudeProvider is intentionally NOT re-exported here — it pulls
 // @anthropic-ai/sdk (node-heavy: node:fs, child_process) which must not enter the
 // browser bundle. Node-only consumers deep-import it:
-//   import { ClaudeProvider } from '@onchainpal/npc-agent/inference/claude-provider'
+//   import { ClaudeProvider } from '@aigg/npc-agent/inference/claude-provider'
 
 // Persona
 export type { NpcPersona, AddressingRule } from './persona/persona';

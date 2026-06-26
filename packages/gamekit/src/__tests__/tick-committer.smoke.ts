@@ -9,8 +9,8 @@
  */
 import assert from 'node:assert/strict';
 import { keccak256, stringToHex, type Hex } from 'viem';
-import { DefaultGameRules } from '@onchainpal/npc-agent';
-import type { AutoDriveClient } from '@onchainpal/npc-agent';
+import { DefaultGameRules } from '@aigg/npc-agent';
+import type { AutoDriveClient } from '@aigg/npc-agent';
 import { applyTx, emptyWorld, stateRoot, type WorldState, type WorldTx, type WorldEvent } from '../stf/world-stf';
 import { TickCommitter, verifyTickBlob, tickEventsHash, type TickAnchor } from '../stf/tick-committer';
 

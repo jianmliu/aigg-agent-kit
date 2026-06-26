@@ -10,7 +10,7 @@
  * an injected controller. Service-side only — the controller holds a key.
  */
 import { createPublicClient, http, type PublicClient } from 'viem';
-import type { AgentWallet, TypedDataPayload } from '@onchainpal/npc-agent';
+import type { AgentWallet, TypedDataPayload } from '@aigg/npc-agent';
 import { computeTbaAddress, type TbaParams } from './tba';
 
 const ERC20_BALANCE_ABI = [{

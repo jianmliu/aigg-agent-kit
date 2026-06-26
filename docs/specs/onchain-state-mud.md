@@ -22,7 +22,7 @@
 
 `npc-agent` 的 `Store` 当初就为此设计(注释:"v2 MudStore,`{onchain:true}` 子集 → MUD tables")。
 
-- **`MudStore implements Store`**(`@onchainpal/onchain`,已建 + test:mudstore):
+- **`MudStore implements Store`**(`@aigg/onchain`,已建 + test:mudstore):
   - 每次 `set` 写入快速/全量的 `local` Store(默认 InMemoryStore,可换 StorageAdapter/IndexedDB);
   - 带 `{ onchain: true }` 的写**额外镜像到 MUD**(经注入式 `MudKvClient`);
   - 读走 `local`(全镜像);`getOnchain()` 读 MUD 上的权威副本。

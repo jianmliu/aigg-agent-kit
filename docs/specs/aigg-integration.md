@@ -10,14 +10,14 @@
 
 ## 1. 一句话
 
-**onchainpal 是一个 AI NPC 怀旧 RPG;每个 NPC 的"思考"是一次 LLM 推理,经 AIGG 网关进行、消耗 GCC。** onchainpal 已把推理/钱包/结算/计量都做成可插拔接缝(`@onchainpal/npc-agent`),**只需 AIGG 在几个明确的点对接**。Demo 起步:**AIGG 全额出资 GCC**(AIGG 持 funding EOA + 授权 agent),onchainpal 只触发推理 + per-NPC 计量。
+**onchainpal 是一个 AI NPC 怀旧 RPG;每个 NPC 的"思考"是一次 LLM 推理,经 AIGG 网关进行、消耗 GCC。** onchainpal 已把推理/钱包/结算/计量都做成可插拔接缝(`@aigg/npc-agent`),**只需 AIGG 在几个明确的点对接**。Demo 起步:**AIGG 全额出资 GCC**(AIGG 持 funding EOA + 授权 agent),onchainpal 只触发推理 + per-NPC 计量。
 
 ---
 
 ## 2. 接缝对齐（双方各自负责什么）
 
 ```
-            onchainpal（@onchainpal/npc-agent + game-engine）         │   AIGG（ai.gg / p2papi 后端）
+            onchainpal（@aigg/npc-agent + game-engine）         │   AIGG（ai.gg / p2papi 后端）
 ─────────────────────────────────────────────────────────────────────┼──────────────────────────────────────
  NPC 思考 → InferenceProvider.complete(prompt) ──── Anthropic API ────▶│  ai.gg 网关（ANTHROPIC_BASE_URL=www.ai.gg）
                                               ◀──── { text, usage } ───│  路由到上游 Claude;按 gcc_pricing 计费扣 GCC
@@ -89,7 +89,7 @@ onchainpal 端的 x402 客户端已对齐 facilitator wire(`POST /verify`+`POST 
 
 ## 4. onchainpal 提供的接口/数据（AIGG 对接面）
 
-onchainpal 侧已实现的接缝(`@onchainpal/npc-agent`),AIGG 实现对应一侧即可:
+onchainpal 侧已实现的接缝(`@aigg/npc-agent`),AIGG 实现对应一侧即可:
 
 ```ts
 // 推理:AIGG = Anthropic 兼容端点;onchainpal 用 SDK 调用并读 usage

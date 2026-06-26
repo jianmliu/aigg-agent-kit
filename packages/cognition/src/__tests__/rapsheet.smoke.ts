@@ -1,4 +1,4 @@
-/** Smoke for RapSheet. Run: pnpm --filter @onchainpal/cognition test:rapsheet */
+/** Smoke for RapSheet. Run: pnpm --filter @aigg/cognition test:rapsheet */
 import assert from 'node:assert/strict';
 import { RapSheet } from '../society/rapsheet';
 

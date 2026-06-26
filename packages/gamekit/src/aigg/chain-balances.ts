@@ -2,7 +2,7 @@
  * chain-balances — zero-dependency on-chain reader.
  *
  * Lets the merchant NPC show real USDC / GCC balances + ERC-8257 subscription
- * tier without pulling viem into @onchainpal/gamekit. Uses raw JSON-RPC
+ * tier without pulling viem into @aigg/gamekit. Uses raw JSON-RPC
  * eth_call against well-known ERC-20 / ToolRegistry selectors. Same pattern as
  * inference-proxy/donations.mjs (already proven against Base mainnet).
  */

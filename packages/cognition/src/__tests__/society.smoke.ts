@@ -1,5 +1,5 @@
 /** Smoke for the misconduct bridge (composes ②a Cognition + ②b Polity).
- *  Run: pnpm --filter @onchainpal/cognition test:society */
+ *  Run: pnpm --filter @aigg/cognition test:society */
 import assert from 'node:assert/strict';
 import { FakeKernel } from '../kernel/fake';
 import { TrustLedger, TRUST_DELTAS } from '../social/trust';

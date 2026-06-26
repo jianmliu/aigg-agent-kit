@@ -5,10 +5,10 @@
  * (custom addressing tiers reach resolveAddressing → TalkResult.addressing),
  * (2) the resolver receives the memory bundle, (3) returning undefined falls
  * back to the default persona, (4) no resolver = behaviour identical to before.
- * Run: pnpm --filter @onchainpal/gamekit test:persona
+ * Run: pnpm --filter @aigg/gamekit test:persona
  */
 import assert from 'node:assert/strict';
-import { InMemoryStore, type InferenceProvider, type InferenceRequest, type InferenceResult, type NpcPersona } from '@onchainpal/npc-agent';
+import { InMemoryStore, type InferenceProvider, type InferenceRequest, type InferenceResult, type NpcPersona } from '@aigg/npc-agent';
 import { SharedWorld, type NpcRecord } from '../index';
 
 class ScriptedProvider implements InferenceProvider {

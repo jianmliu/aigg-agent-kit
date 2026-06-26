@@ -13,11 +13,11 @@
  * parse are byte-identical to the in-place SharedWorld reasoning), and captures
  * the raw InferenceResult (usage + attestation) via a provider proxy.
  */
-import { LlmAgent, RelationshipMemory, InMemoryStore } from '@onchainpal/npc-agent';
+import { LlmAgent, RelationshipMemory, InMemoryStore } from '@aigg/npc-agent';
 import type {
   Effect, NpcPersona, RelationshipState, Attestation, InferenceProvider, InferenceResult,
   InferenceUsage, Metabolism, Perception,
-} from '@onchainpal/npc-agent';
+} from '@aigg/npc-agent';
 
 export interface OracleInput {
   npcId: string;

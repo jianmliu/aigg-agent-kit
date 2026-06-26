@@ -9,7 +9,7 @@
  * Run: npx tsx src/__tests__/combat-store.smoke.ts
  */
 import assert from 'node:assert/strict';
-import { InMemoryStore } from '@onchainpal/npc-agent';
+import { InMemoryStore } from '@aigg/npc-agent';
 import { SharedWorld } from '../shared-world';
 
 async function main() {

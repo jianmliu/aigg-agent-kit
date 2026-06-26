@@ -2,11 +2,11 @@
  * Headless smoke for MudStore — the on-chain state backend. A fake MudKvClient
  * (in-memory) stands in for a deployed MUD World; verifies the {onchain:true}
  * subset is mirrored to MUD while everything is kept in the local mirror.
- * Run: pnpm --filter @onchainpal/onchain test:mudstore
+ * Run: pnpm --filter @aigg/onchain test:mudstore
  */
 import assert from 'node:assert/strict';
-import { InMemoryStore } from '@onchainpal/npc-agent';
-import type { Scope } from '@onchainpal/npc-agent';
+import { InMemoryStore } from '@aigg/npc-agent';
+import type { Scope } from '@aigg/npc-agent';
 import { MudStore, mudKey, type MudKvClient } from '../mud-store';
 
 class FakeMud implements MudKvClient {

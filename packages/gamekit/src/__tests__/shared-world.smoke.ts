@@ -5,10 +5,10 @@
  *
  * Proves: user A creates + funds + places an AI NPC → user B (a different client)
  * discovers it, talks to it (it thinks on A's GCC, burns it, remembers B) → B
- * donates → balance rises. Run: pnpm --filter @onchainpal/gamekit test:world
+ * donates → balance rises. Run: pnpm --filter @aigg/gamekit test:world
  */
 import assert from 'node:assert/strict';
-import { InMemoryStore, Metabolism, type InferenceProvider, type InferenceRequest, type InferenceResult } from '@onchainpal/npc-agent';
+import { InMemoryStore, Metabolism, type InferenceProvider, type InferenceRequest, type InferenceResult } from '@aigg/npc-agent';
 import { SharedWorld } from '../index';
 
 // scripted NPC (zero-dep). gccCost meaningful so the balance story plays out.

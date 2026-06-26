@@ -5,7 +5,7 @@
  * append-only memory chain (history), delete drops only the pointer (blobs
  * remain), and onchain CID tracking.
  *
- * Run: pnpm --filter @onchainpal/npc-agent test:autodrive
+ * Run: pnpm --filter @aigg/npc-agent test:autodrive
  */
 import assert from 'node:assert/strict';
 import { AutoDriveStore, InMemoryStore, type AutoDriveClient } from '../index';

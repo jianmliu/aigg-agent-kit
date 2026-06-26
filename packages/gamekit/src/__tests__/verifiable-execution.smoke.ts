@@ -12,8 +12,8 @@
  */
 import assert from 'node:assert/strict';
 import { privateKeyToAccount } from 'viem/accounts';
-import { DefaultGameRules } from '@onchainpal/npc-agent';
-import type { NpcPersona, Effect } from '@onchainpal/npc-agent';
+import { DefaultGameRules } from '@aigg/npc-agent';
+import type { NpcPersona, Effect } from '@aigg/npc-agent';
 import { OperatorAttestationVerifier, signAttestation, verifyTalkProvenance, sha256Hex } from '../stf/attestation-verifier';
 import { BaseSettlementLayer } from '../stf/settlement-layer';
 import { applyTx, applyAll, emptyWorld, relKey, type WorldTx } from '../stf/world-stf';

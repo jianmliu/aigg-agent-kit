@@ -19,7 +19,7 @@
  * wallet-svc expose a challenge endpoint) once the replay-safe wrapping is wired.
  */
 import { hashTypedData } from 'viem';
-import type { AgentWallet, TypedDataPayload } from '@onchainpal/npc-agent';
+import type { AgentWallet, TypedDataPayload } from '@aigg/npc-agent';
 import { CswWalletClient, type CswOwner, type WebAuthnAssertion } from './csw-wallet-client';
 
 /** Signs a challenge with the user's passkey (browser WebAuthn) → assertion. */

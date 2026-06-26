@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { verifyTypedData } from 'viem';
-import { GccLedger, InMemoryStore, type InferenceUsage } from '@onchainpal/npc-agent';
+import { GccLedger, InMemoryStore, type InferenceUsage } from '@aigg/npc-agent';
 import { EoaAgentWallet } from '../agent-eoa';
 import { AiggFacilitatorClient } from '../aigg-facilitator-client';
 import { X402GccEip3009Settlement } from '../x402-gcc-eip3009';

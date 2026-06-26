@@ -1,7 +1,7 @@
 /**
  * Headless smoke test for the P0 ③a cognition loop — no PAL, no live Ollama.
  * Uses a FakeProvider returning canned model output so the test is deterministic.
- * Run: pnpm --filter @onchainpal/npc-agent test:smoke
+ * Run: pnpm --filter @aigg/npc-agent test:smoke
  *
  * Asserts the full vertical: perception → LlmAgent (parse structured intent) →
  * EffectResolver (GameRules validation) → relationship memory update + addressing
