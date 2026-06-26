@@ -21,7 +21,8 @@
     "test:governance": "tsx src/__tests__/governance.smoke.ts",
     "test:rapsheet": "tsx src/__tests__/rapsheet.smoke.ts",
     "test:lending": "tsx src/__tests__/lending.smoke.ts",
-    "test:society": "tsx src/__tests__/society.smoke.ts"
+    "test:society": "tsx src/__tests__/society.smoke.ts",
+    "test:crime": "tsx src/__tests__/crime.smoke.ts"
   },
   "devDependencies": { "@types/node": "^22.8.4", "tsx": "^4.21.0" }
 }

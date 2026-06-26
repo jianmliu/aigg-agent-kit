@@ -20,3 +20,5 @@ export type { RapEntry } from './society/rapsheet';
 export { LoanBook, LOAN_RATE, LOAN_TERM } from './society/lending';
 export type { Loan, Settlement } from './society/lending';
 export { misconductTopic, recordMisconduct, runRapSanction } from './society/misconduct';
+export { detect, attemptCrime, P_DETECT } from './society/crime';
+export type { CrimeKind } from './society/crime';
