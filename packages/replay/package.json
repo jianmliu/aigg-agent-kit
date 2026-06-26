@@ -1,0 +1,27 @@
+{
+  "name": "@onchainpal/replay",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "description": "Unified, pack-extensible replay: replay@1 schema, recorder, validator, and a pack-aware viewer. Domain-neutral core + Pack Registry — adding a world registers a pack, the core never changes.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": { "import": "./src/index.ts", "types": "./src/index.ts" }
+  },
+  "scripts": {
+    "test:scaffold": "tsx src/__tests__/scaffold.smoke.ts",
+    "test:registry": "tsx src/__tests__/registry.smoke.ts",
+    "test:town": "tsx src/__tests__/town-pack.smoke.ts",
+    "test:econ": "tsx src/__tests__/econ-pack.smoke.ts",
+    "test:validate": "tsx src/__tests__/validate.smoke.ts",
+    "test:recorder": "tsx src/__tests__/recorder.smoke.ts",
+    "test:fixture": "tsx src/__tests__/fixture.smoke.ts",
+    "test:viewer": "tsx src/__tests__/viewer-core.smoke.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.8.4",
+    "tsx": "^4.21.0"
+  }
+}
