@@ -52,7 +52,14 @@ export class ViemNativeChain implements NativeChain {
       ? privateKeyToAccount(this.treasuryPk)
       : mnemonicToAccount(this.mnemonic, { addressIndex: npcAddressIndex(from) });
     const hash = await this.wallet.sendTransaction({ account, to, value: valueWei, chain: this.chain });
-    await this.pub.waitForTransactionReceipt({ hash });
-    return hash;
+    // Robust receipt wait: a laggy RPC can make viem's waitForTransactionReceipt throw
+    // TransactionReceiptNotFoundError transiently even when the tx mines fine (observed on 0G
+    // testnet). Poll the receipt directly, tolerating not-found, for up to ~60s.
+    for (let i = 0; i < 30; i++) {
+      const receipt = await this.pub.getTransactionReceipt({ hash }).catch(() => null);
+      if (receipt) return hash;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    return hash; // submitted but receipt not observed within ~60s — the caller can verify on-chain
   }
 }
