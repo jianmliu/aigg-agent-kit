@@ -50,6 +50,12 @@ async function main() {
   // anchor is a no-op stub that resolves
   await layer.anchor('0xdeadbeef');
 
+  // ViemNativeChain constructs against the predefined 0G chains without hitting the network.
+  const { ViemNativeChain } = await import('../viem-native-chain');
+  const vc = new ViemNativeChain({ net: 'mainnet', npcMnemonic: MNEMONIC, treasuryPrivateKey: ('0x' + '11'.repeat(32)) as `0x${string}` });
+  const layer2 = new Native0gSettlementLayer({ chain: vc, npcMnemonic: MNEMONIC, treasuryAddress: TREASURY });
+  assert.ok(layer2.addressOf(npc).startsWith('0x'), 'viem-backed layer derives an address');
+
   console.log('NATIVE-0G SETTLEMENT SMOKE OK ✅');
 }
 main().catch((e) => { console.error('NATIVE-0G SETTLEMENT SMOKE FAILED ❌', e); process.exit(1); });
