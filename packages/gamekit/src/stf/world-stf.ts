@@ -18,6 +18,7 @@ import type { Effect, GameRules, RuleContext, RelationshipState } from '@onchain
 import type { NpcRecord } from '../shared-world';
 import { resolveBattle } from './resolve-battle';
 import { PLACEHOLDER_RESTRAINT, type CombatStats, type Combatant, type BattleRound } from './combat-types';
+import type { ArtifactRecord, ArtifactProvenance, ArtifactKind } from './artifact-types';
 
 /** 重伤期长度(tick)。TODO(owner): 调参。 */
 export const WOUND_TICKS = 3;
@@ -44,6 +45,10 @@ export interface WorldState {
   market?: MarketState;
   /** marketId → binary prediction market, resolved INTERNALLY by the AMM price (pump-town). */
   markets?: Record<string, PredictionMarket>;
+  /** artifactId → forged artifact (soul-bound, onchain-ready; dwarf §4.4). */
+  artifacts?: Record<string, ArtifactRecord>;
+  /** npcId → owned artifactIds. */
+  inventory?: Record<string, string[]>;
 }
 
 /** 恒积做市池。Spot price p_t = silverReserve/riceReserve(银 per 米/货)。
@@ -84,6 +89,10 @@ export type WorldTx =
    */
   | { type: 'luckEvent'; npcId: string; gccDelta?: number; gccFactor?: number; affinityDelta?: number; playerId?: string; label?: string; now: number }
   | { type: 'battle'; attackerId: string; defender: Combatant; seed: number; now: number }
+  /** The committed forge of a strange-mood artifact. name/engraving/kind are computed OUTSIDE
+   *  (host: LLM name + chronicle engraving), carried in the tx so applyTx stays pure (cf. applyTalk). */
+  | { type: 'forgeArtifact'; npcId: string; artifactId: string; kind: ArtifactKind; name: string
+      ; engraving: string; materialsSilver: number; provenance: ArtifactProvenance; now: number }
   // ── pump-town economic core (the high-stake, on-chain-executed subset) ──────
   /** Seed the constant-product AMM pool + initial supply (genesis-ish). */
   | { type: 'initMarket'; riceReserve: number; silverReserve: number; supply?: number }
@@ -122,6 +131,7 @@ export type WorldEvent =
   | { kind: 'battle'; attackerId: string; defenderRef: string; rounds: BattleRound[];
       winnerId: string; loserId: string; woundedUntil: number;
       affinity?: { ab: number; ba: number } }
+  | { kind: 'artifactForged'; npcId: string; artifactId: string; name: string; engraving: string; artifactKind: ArtifactKind }
   | { kind: 'marketInit'; riceReserve: number; silverReserve: number; supply: number }
   | { kind: 'traded'; agentId: string; side: 'buy' | 'sell'; amountIn: number; out: number; price: number; riceReserve: number; silverReserve: number }
   | { kind: 'dividend'; perGcc: number; totalPaid: number }
@@ -279,6 +289,21 @@ export function applyTx(prev: WorldState, tx: WorldTx, rules: GameRules): { stat
       events.push({ kind: 'battle', attackerId: tx.attackerId, defenderRef: defRef, rounds: result.rounds,
         winnerId: result.winnerId, loserId: result.loserId, woundedUntil: tx.now + WOUND_TICKS,
         ...(affinity ? { affinity } : {}) });
+      break;
+    }
+    case 'forgeArtifact': {
+      const npc = state.npcs[tx.npcId];
+      if (!npc) { events.push({ kind: 'rejected', reason: 'no_npc', tx }); break; }
+      const record: ArtifactRecord = {
+        id: tx.artifactId, kind: tx.kind, name: tx.name, engraving: tx.engraving,
+        materialsSilver: tx.materialsSilver, ownedBy: tx.npcId, provenance: tx.provenance, onchain: true,
+      };
+      state.artifacts ??= {};
+      state.artifacts[tx.artifactId] = record;
+      state.inventory ??= {};
+      (state.inventory[tx.npcId] ??= []).push(tx.artifactId);
+      events.push({ kind: 'artifactForged', npcId: tx.npcId, artifactId: tx.artifactId,
+        name: tx.name, engraving: tx.engraving, artifactKind: tx.kind });
       break;
     }
     case 'initMarket': {
