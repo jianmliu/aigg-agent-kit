@@ -78,3 +78,7 @@ export type { ChainBalanceProviderOptions, TokenBalance } from './aigg/chain-bal
 
 // 野外遭遇 / 妖怪图鉴类型(B1)
 export type { DropTable, MonsterSpecies, WildConfig } from './stf/wild-types';
+
+// Artifact types + soul-bound forging (crafting mood-engraved unique items)
+export { artifactId } from './stf/artifact-types';
+export type { ArtifactKind, ArtifactProvenance, ArtifactRecord } from './stf/artifact-types';
