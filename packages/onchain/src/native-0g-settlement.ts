@@ -103,15 +103,20 @@ export class Native0gSettlementLayer {
   }
   async anchor(_stateRoot: string): Promise<void> { /* no-op — anchoring is ⑤ data-on-chain */ }
 
+  // INVARIANT: for DOWNWARD convergence the effective floor is max(dustUnits, gas/weiPerUnit),
+  // not dustUnits alone — the NPC pays its own withdraw gas, so a sub-gas diff can't be settled
+  // and is a TRUE no-op (returns null), never a silently-stuck diff.
   async reconcile(npcId: string, targetUnits: number): Promise<SettleTx | null> {
     const current = (await this.balanceOf(npcId)) ?? 0;
     const diff = targetUnits - current;
-    if (Math.abs(diff) < this.dustUnits) return null;
+    if (Math.abs(diff) < this.dustUnits) return null;          // already aligned
     const addr = this.addressOf(npcId);
     if (diff > 0) {
-      const txHash = await this.depositTx(npcId, diff);
+      const txHash = await this.depositTx(npcId, diff);        // treasury pays gas → always settles
       return txHash ? { npcId, address: addr, direction: 'deposit', units: diff, txHash } : null;
     }
+    const gasFloorUnits = this.weiToUnits(await this.chain.estimateGasCostWei());
+    if (-diff <= gasFloorUnits) return null;                   // sub-gas downward diff → honest no-op
     const txHash = await this.withdrawTx(npcId, -diff);
     return txHash ? { npcId, address: addr, direction: 'withdraw', units: -diff, txHash } : null;
   }

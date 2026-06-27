@@ -38,9 +38,13 @@ async function main() {
   // already aligned → no tx
   assert.equal(await layer.reconcile(npc, 7), null, 'aligned → no tx (within dust)');
 
+  // a sub-gas downward diff (< gas/weiPerUnit = 0.01 units) is a TRUE no-op, not a stuck diff
+  assert.equal(await layer.reconcile(npc, 6.995), null, 'sub-gas downward diff → no-op (null)');
+  assert.ok(Math.abs((await layer.balanceOf(npc)) - 7) < 1e-3, 'balance unchanged after sub-gas no-op');
+
   // settling to 0 withdraws the rest
   const tx3 = await layer.reconcile(npc, 0);
-  assert.ok(tx3 === null || tx3.direction === 'withdraw', 'reconcile to 0 withdraws the rest');
+  assert.ok(tx3 && tx3.direction === 'withdraw', 'reconcile to 0 → a withdraw (above gas floor)');
   assert.ok((await layer.balanceOf(npc)) < 1e-3, 'balanceOf ~0 after settling to 0');
 
   // anchor is a no-op stub that resolves
