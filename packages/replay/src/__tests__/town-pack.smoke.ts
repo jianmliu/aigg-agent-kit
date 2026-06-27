@@ -16,7 +16,7 @@ function errs(ev: Event): string[] {
 }
 
 assert.equal(TOWN_PACK_ID, 'town@0');
-assert.deepEqual(townPack.eventKinds, ['town.talk', 'town.pitch', 'town.refuse', 'town.anchor', 'town.belief', 'town.warn', 'town.trust', 'town.propose', 'town.vote', 'town.sanction', 'town.lend', 'town.default', 'town.rap', 'town.crime']);
+assert.deepEqual(townPack.eventKinds, ['town.talk', 'town.pitch', 'town.refuse', 'town.anchor', 'town.belief', 'town.warn', 'town.trust', 'town.propose', 'town.vote', 'town.sanction', 'town.lend', 'town.default', 'town.rap', 'town.crime', 'town.settle']);
 
 // town.talk verified:true needs an attestation signature
 assert.equal(errs({ kind: 'town.talk', data: { verified: true, attestation: { signature: 'sig' } } }).length, 0, 'verified talk with sig ok');
@@ -51,6 +51,10 @@ assert.ok(errs({ kind: 'town.rap', data: { offender: 'visitor:1' } }).length > 0
 assert.equal(errs({ kind: 'town.crime', data: { offender: 'visitor:1', kind: 'sabotage', caught: true } }).length, 0, 'valid crime ok');
 assert.ok(errs({ kind: 'town.crime', data: { offender: 'visitor:1', kind: 'sabotage' } }).length > 0, 'crime missing caught fails');
 assert.ok(errs({ kind: 'town.crime', data: { offender: 'visitor:1', kind: 'sabotage', caught: 'yes' } }).length > 0, 'crime non-boolean caught fails');
+
+// town.settle validates with units/direction/txHash
+assert.equal(errs({ kind: 'town.settle', data: { units: 3, direction: 'withdraw', txHash: '0xabc', address: '0x1234567890123456789012345678901234567890' } }).length, 0, 'valid town.settle has no errors');
+assert.ok(errs({ kind: 'town.settle', data: { direction: 'withdraw' } }).length > 0, 'town.settle missing units/txHash errors');
 
 // panel descriptor present
 assert.equal(townPack.viewer?.panels[0].render, 'town-ledger');

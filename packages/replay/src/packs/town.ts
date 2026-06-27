@@ -5,7 +5,7 @@ export const TOWN_PACK_ID = 'town@0';
 /** 0gtown's learn-loop. TEE attestations + 0G Storage roots are first-class. */
 export const townPack: ReplayPack = {
   id: TOWN_PACK_ID,
-  eventKinds: ['town.talk', 'town.pitch', 'town.refuse', 'town.anchor', 'town.belief', 'town.warn', 'town.trust', 'town.propose', 'town.vote', 'town.sanction', 'town.lend', 'town.default', 'town.rap', 'town.crime'],
+  eventKinds: ['town.talk', 'town.pitch', 'town.refuse', 'town.anchor', 'town.belief', 'town.warn', 'town.trust', 'town.propose', 'town.vote', 'town.sanction', 'town.lend', 'town.default', 'town.rap', 'town.crime', 'town.settle'],
   validateEvent(ev: Event, _ctx: ValidateCtx): string[] {
     const errs: string[] = [];
     const d = ev.data ?? {};
@@ -38,6 +38,9 @@ export const townPack: ReplayPack = {
     }
     if (ev.kind === 'town.crime' && (!d.offender || !d.kind || typeof d.caught !== 'boolean')) {
       errs.push('town.crime requires data.offender, data.kind, and a boolean data.caught');
+    }
+    if (ev.kind === 'town.settle' && (typeof d.units !== 'number' || (d.direction !== 'deposit' && d.direction !== 'withdraw') || !d.txHash)) {
+      errs.push('town.settle requires numeric data.units, data.direction deposit|withdraw, and data.txHash');
     }
     return errs;
   },

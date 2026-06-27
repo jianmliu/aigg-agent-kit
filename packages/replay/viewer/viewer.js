@@ -55,6 +55,7 @@ const RENDERERS = {
       if (c.kind === 'lend') label = `${esc(c.lender)} lent ${esc(String(c.amount))} $0G to ${esc(c.borrower)}`;
       else if (c.kind === 'default') label = `${esc(c.borrower)} DEFAULTED on ${esc(c.lender)} (owed ${esc(String(c.owed))}, paid ${esc(String(c.recovered))})`;
       else if (c.kind === 'crime') label = `${esc(c.offender)} ${esc(c.crimeKind)} ${esc(c.victim)} — ${c.caught ? 'CAUGHT' : 'got away'}`;
+      else if (c.kind === 'settle') label = `⛓ ${esc(c.actor)} ${c.direction === 'deposit' ? 'funded' : 'settled'} ${esc(String(c.units))} $0G on-chain (${esc(String(c.txHash).slice(0, 10))}…)`;
       else label = `RAP ${esc(c.offender)} — ${esc(c.rapKind)} (vs ${esc(c.victim)})`;
       row.innerHTML = `<span class="muted">💱 ${label}</span>`;
       el.appendChild(row);
