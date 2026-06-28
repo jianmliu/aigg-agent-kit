@@ -25,6 +25,7 @@ import type { AiggMemoryClient, PlanResult, DiscernmentResult } from '@aigg/npc-
 import { LocalLedgerActivator, ActivationError } from './aigg/activation';
 import type { Activator } from './aigg/activation';
 import { applyTx, emptyWorld, relKey, type WorldState, type WorldEvent, type WorldTx, type MarketState, type PredictionMarket } from './stf/world-stf';
+import { artifactId, type ArtifactKind, type ArtifactProvenance, type ArtifactRecord } from './stf/artifact-types';
 import { deriveCombatStats } from './stf/derive-combat-stats';
 import type { CombatStats, BattleRound } from './stf/combat-types';
 import { mulberry32 } from './stf/luck';
@@ -48,6 +49,8 @@ const diaryKey = (id: string) => `npc:${id}:diary`;   // off-chain 夜记 log (n
 const logKey = (id: string) => `npc:${id}:log`;       // off-chain 3rd-person system log (debug: say/move/pitch/dream)
 const riceKey = (id: string) => `npc:${id}:rice`;
 const needsKey = (id: string) => `npc:${id}:needs`;   // off-chain 易变态(同 diary/log,不带 ONCHAIN)
+const artifactKey = (id: string) => `artifact:${id}`;          // onchain-ready durable record
+const inventoryKey = (id: string) => `npc:${id}:artifacts`;    // npcId → string[] of artifactIds
 const RICE_MARKET = 'world:market:rice';
 const RICE_BETS = 'world:market:bets';
 const REGISTRY = 'world:npcs';
@@ -1757,6 +1760,54 @@ export class SharedWorld {
     // 7) emit + return
     this.emit(events, { now, tx });
     return { ok: true, outcome: won ? 'win' : 'loss', yield: won ? { silver, food } : undefined, balanceSilver, rounds: ev.rounds };
+  }
+
+  /**
+   * Forge a strange-mood artifact (dwarf §4.4). name/engraving/kind are computed by the host
+   * (LLM name + chronicle engraving) and passed in; this debits silver (②层), records the
+   * artifact via applyTx, persists it onchain-ready + soul-bound (TBA), and emits the event.
+   */
+  async forgeArtifact(input: {
+    npcId: string; kind: ArtifactKind; name: string; engraving: string;
+    provenance: ArtifactProvenance; costSilver: number; now: number;
+  }): Promise<{ ok: boolean; reason?: string; artifactId?: string; balanceSilver: number }> {
+    const rec = await this.getNpc(input.npcId);
+    const bal0 = await this.balanceSilver(input.npcId);
+    if (!rec) return { ok: false, reason: 'no_npc', balanceSilver: bal0 };
+    if (bal0 < input.costSilver) return { ok: false, reason: 'insufficient_silver', balanceSilver: bal0 };
+
+    const id = artifactId(input.provenance.creatorNpcId, input.provenance.season, input.provenance.deedSeq);
+    const slice: WorldState = { ...emptyWorld(), npcs: { [input.npcId]: { ...rec, status: 'active' } } };
+    const tx: WorldTx = {
+      type: 'forgeArtifact', npcId: input.npcId, artifactId: id, kind: input.kind, name: input.name,
+      engraving: input.engraving, materialsSilver: input.costSilver, provenance: input.provenance, now: input.now,
+    };
+    const { state: applied, events } = applyTx(slice, tx, new DefaultGameRules(() => undefined));
+    const rejected = events.find((e) => (e as { kind?: string }).kind === 'rejected') as { reason?: string } | undefined;
+    if (rejected) return { ok: false, reason: rejected.reason, balanceSilver: bal0 };
+
+    // ②层:扣银(off-chain,silverKey,无 ONCHAIN)
+    const balanceSilver = await this.addSilver(input.npcId, -input.costSilver);
+    // ①层就绪:持久化 artifact 记录(onchain-tagged)+ 更新 inventory 索引
+    const record = applied.artifacts![id];
+    await this.store.set(W, this.wkey(artifactKey(id)), record, ONCHAIN);
+    const inv = (await this.getScoped<string[]>(inventoryKey(input.npcId))) ?? [];
+    if (!inv.includes(id)) inv.push(id);
+    await this.store.set(W, this.wkey(inventoryKey(input.npcId)), inv, ONCHAIN);
+
+    this.emit(events, { now: input.now, tx });
+    return { ok: true, artifactId: id, balanceSilver };
+  }
+
+  /** Read an NPC's forged artifacts (durable). */
+  async artifactsOf(npcId: string): Promise<ArtifactRecord[]> {
+    const ids = (await this.getScoped<string[]>(inventoryKey(npcId))) ?? [];
+    const out: ArtifactRecord[] = [];
+    for (const id of ids) {
+      const r = await this.getScoped<ArtifactRecord>(artifactKey(id));
+      if (r) out.push(r);
+    }
+    return out;
   }
 }
 
