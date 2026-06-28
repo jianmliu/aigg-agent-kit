@@ -55,3 +55,9 @@ export type {
 } from './x402-gcc-eip3009';
 export { X402GccSettlement } from './x402-gcc-settlement';
 export type { GccSettlementConfig, NonceProvider, FacilitatorClient, GccPermitPayment, X402GccSettlementOptions } from './x402-gcc-settlement';
+
+// Native-coin checkpoint settlement (any EVM chain; 0G Chain default)
+export { Native0gSettlementLayer, FakeNativeChain } from './native-0g-settlement';
+export type { NativeChain, Native0gSettlementOptions, SettleTx } from './native-0g-settlement';
+export { ViemNativeChain } from './viem-native-chain';
+export type { ViemNativeChainOptions } from './viem-native-chain';
