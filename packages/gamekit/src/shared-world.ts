@@ -1163,6 +1163,18 @@ export class SharedWorld {
   /** Anyone can sponsor an NPC's mind. First top-up of a draft activates it. */
   async donate(_donor: string, npcId: string, gcc: number, opts: { apiKey?: string } = {}): Promise<number> { return this.addGccOrActivate(npcId, gcc, opts); }
 
+  /** Host-driven DEBIT of an NPC's GCC (bills, penalties, taxes) — the inverse of donate/fund.
+   *  Clamps at 0. Uses the settlement withdraw when a layer is wired, else the local ledger.
+   *  Returns the new balance. (donate/fund only ever ADD; this is the missing subtract.) */
+  async debit(npcId: string, gcc: number): Promise<number> {
+    const amt = Math.max(0, gcc);
+    if (amt === 0) return this.balanceGcc(npcId);
+    if (this.settlementLayer) { await this.settlementLayer.withdraw(npcId, amt); return this.balanceGcc(npcId); }
+    const bal = Math.max(0, (await this.balanceGcc(npcId)) - amt);
+    await this.store.set(W, gccKey(npcId), bal, ONCHAIN);
+    return bal;
+  }
+
   async place(npcId: string, room: string): Promise<void> {
     if (!this.rooms.includes(room)) throw new Error(`no room ${room}`);
     const draft = this.draftNpcs.get(npcId);
