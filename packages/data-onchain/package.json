@@ -1,0 +1,20 @@
+{
+  "name": "@aigg/data-onchain",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "description": "0G Storage data anchoring (upload/download/verify) for AI agents. Content-addressed, tamper-evident, implements the AutoDriveClient port.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": { ".": { "import": "./src/index.ts", "types": "./src/index.ts" } },
+  "dependencies": {
+    "@aigg/npc-agent": "workspace:*",
+    "@0gfoundation/0g-storage-ts-sdk": "^1.2.10",
+    "ethers": "^6.16.0"
+  },
+  "scripts": {
+    "test": "node --import tsx src/__tests__/data-onchain.smoke.ts"
+  },
+  "devDependencies": { "@types/node": "^22.8.4", "tsx": "^4.21.0" }
+}
