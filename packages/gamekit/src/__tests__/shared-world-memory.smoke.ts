@@ -245,6 +245,37 @@ async function test_pitch_outcome_loop(port: number, calls: Call[]) {
   console.log('  ✓ learned pitch → discernment gate → NPC DECLINES, GCC preserved (behaviour changed)');
 }
 
+async function test_pitch_gate_topics(port: number, calls: Call[]) {
+  // the pitchGateTopics seam: default scans [fromId,'pitch','deal']; a world can
+  // narrow to per-counterpart wariness (e.g. 0gtown's marquee needs FRESH
+  // counterparts to land even after someone else's loss wrote a generic belief).
+  const client = new AiggMemoryClient({ baseUrl: `http://127.0.0.1:${port}` });
+
+  // DEFAULT: three topics scanned, most-specific first (behaviour unchanged)
+  const dflt = new SharedWorld({ store: new InMemoryStore(), provider: new ScriptedProvider(), metabolism: richMetabolism, memory: client });
+  const a = await dflt.createNpc({ name: '甲摊主', owner: 'user:A', background: 'bg', room: '集市', startGcc: 0.0009 });
+  calls.length = 0;
+  await dflt.pitch({ npcId: a, fromId: 'player:某甲', amountGcc: 0.0001, claim: '稳赚' });
+  const topics0 = calls.filter((c) => c.path === '/memory/discernment').map((c) => String(c.body.topic));
+  assert.deepEqual(topics0, ['player:某甲', 'pitch', 'deal'], `default gate topics unchanged, got ${topics0}`);
+  console.log("  ✓ default pitchGateTopics = [fromId,'pitch','deal'] (behaviour unchanged)");
+
+  // NARROWED: (f)=>[f] — exactly one counterpart-scoped scan; fresh counterpart stays naive
+  const narrow = new SharedWorld({ store: new InMemoryStore(), provider: new ScriptedProvider(), metabolism: richMetabolism, memory: client, pitchGateTopics: (f) => [f] });
+  const b = await narrow.createNpc({ name: '乙摊主', owner: 'user:A', background: 'bg', room: '集市', startGcc: 0.0009 });
+  calls.length = 0;
+  const fresh = await narrow.pitch({ npcId: b, fromId: 'player:某乙', amountGcc: 0.0001, claim: '稳赚' });
+  const topics1 = calls.filter((c) => c.path === '/memory/discernment').map((c) => String(c.body.topic));
+  assert.deepEqual(topics1, ['player:某乙'], `narrowed gate scans ONLY the counterpart, got ${topics1}`);
+  assert.equal(fresh.accepted, true, 'fresh counterpart lands (no generic pre-emption)');
+  console.log('  ✓ pitchGateTopics:(f)=>[f] → counterpart-only scan, fresh counterpart lands');
+
+  // NARROWED still gates: a counterpart the NPC holds a belief about is refused
+  const wary = await narrow.pitch({ npcId: b, fromId: 'player:赌局乙', amountGcc: 0.0001, claim: '换个说法的稳赚' });
+  assert.equal(wary.protected, true, 'known counterpart refused through the narrowed gate (any wording)');
+  console.log('  ✓ narrowed gate still refuses a known counterpart — reworded claim included');
+}
+
 async function test_memory_errors_do_not_break_talk(port: number, _calls: Call[]) {
   // point at a dead port so all memory calls fail
   const client = new AiggMemoryClient({ baseUrl: 'http://127.0.0.1:1' }); // unreachable
@@ -286,6 +317,7 @@ async function main() {
     await test_discernment_gates_the_turn(port, calls);
     await test_dream_reflect_verify_on_rich_tier(port, calls);
     await test_pitch_outcome_loop(port, calls);
+    await test_pitch_gate_topics(port, calls);
     await test_memory_errors_do_not_break_talk(port, calls);
     await test_without_memory_client_unchanged(port, calls);
   } finally {

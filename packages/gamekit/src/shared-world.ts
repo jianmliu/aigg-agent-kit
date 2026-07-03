@@ -138,6 +138,15 @@ export interface SharedWorldOptions {
   memoryNamespace?: string;
   /** θ for the per-turn discernment gate (relevant belief AND confidence ≥ θ). Default 0.5. */
   discernmentTheta?: number;
+  /**
+   * Topics the PITCH discernment gate scans, most-specific first. Default
+   * `(f) => [f, 'pitch', 'deal']` — the counterpart, then generic offer-wariness
+   * (one loss makes the NPC wary of pitches in general; fine for a game world).
+   * A world whose demo needs FRESH counterparts to land (per-counterpart wariness
+   * only — e.g. 0gtown's marquee scam) passes `(f) => [f]`. Incremental option,
+   * default = today's behaviour (personaResolver precedent).
+   */
+  pitchGateTopics?: (fromId: string) => string[];
   /** 好感门槛:非 sudo/owner 的访客要「说动」NPC 移动(goto)所需的 affinity。
    *  Ford 原则——游客没有直接命令权,只有记忆与好感两条影响通道。Default 30. */
   commandAffinity?: number;
@@ -255,6 +264,7 @@ export class SharedWorld {
   private readonly memoryModel?: { aiggUrl: string; aiggKey?: string; model?: string; backend?: string; timeout?: number };
   private readonly memoryNs: string = '';
   private readonly discernmentTheta: number;
+  private readonly pitchGateTopics: (fromId: string) => string[];
   private readonly commandAffinity: number;
   private readonly activator: Activator;
   private readonly minActivationGcc: number;
@@ -299,6 +309,7 @@ export class SharedWorld {
     this.memoryModel = opts.memoryModel;
     this.memoryNs = opts.memoryNamespace ? `${opts.memoryNamespace.replace(/\/+$/, '')}/` : '';
     this.discernmentTheta = opts.discernmentTheta ?? 0.5;
+    this.pitchGateTopics = opts.pitchGateTopics ?? ((f) => [f, 'pitch', 'deal']);
     this.commandAffinity = opts.commandAffinity ?? 30;
     this.activator = opts.activator ?? new LocalLedgerActivator();
     this.minActivationGcc = opts.minActivationGcc ?? 0.001;
@@ -742,12 +753,11 @@ export class SharedWorld {
     const now = Date.now();
     const corpus = await this.memoryCorpus(input.npcId);
     const evidence = await this.memoryEvidence(input.npcId);
-    const topic = input.fromId; // the counterpart — discernment scans episodes citing them
-
     // decide BY memory: a verified wary belief about this counterpart/offer → refuse
+    // (topics from pitchGateTopics — default counterpart-first, then generic)
     let gate: DiscernmentResult | undefined;
     if (this.memory) {
-      for (const t of [topic, 'pitch', 'deal']) {
+      for (const t of this.pitchGateTopics(input.fromId)) {
         try {
           const d = await this.memory.discernment(t, { corpus, mode: 'provenance', minConfidence: this.discernmentTheta });
           if (d && d.q > 0) { gate = d; break; }
