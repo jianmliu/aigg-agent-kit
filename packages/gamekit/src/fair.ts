@@ -96,9 +96,12 @@ export class FairTick {
     const gossips = this.actors.filter((a) => a.role === 'gossip' && !skip(a.npcId));
     const marks = this.actors.filter((a) => a.role !== 'pitcher' && !skip(a.npcId));
 
-    // movement first (the schedule layer): patrol actors step to this tick's stop
+    // movement first (the schedule layer): patrol actors step to this tick's stop.
+    // skip() applies here too — an NPC the host is actively driving (e.g. a PlanExecutor
+    // walking it toward a planned destination) must not be yanked back onto its patrol.
     const moves: FairMoveEvent[] = [];
     for (const a of this.actors) {
+      if (skip(a.npcId)) continue;
       if (!a.route?.length) continue;
       const target = a.route[Math.floor(tick / (a.dwell ?? 3)) % a.route.length];
       const from = await this.roomOf(a);
