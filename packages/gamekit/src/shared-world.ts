@@ -1335,6 +1335,14 @@ export class SharedWorld {
   async setCombat(npcId: string, stats: CombatStats): Promise<void> {
     await this.store.set(W, this.wkey(combatKey(npcId)), stats);
   }
+  /** An NPC's recent diary — the logEvent trail (say/move/pitch/gossip/dream/…). The engine
+   *  has always WRITTEN this (last 200 entries, off-chain); this is the missing public READ,
+   *  so hosts can show "an NPC's day". Newest last. */
+  async diaryOf(npcId: string, limit = 20): Promise<Array<{ ts: number; kind: string; text: string }>> {
+    const all = (await this.getScoped<Array<{ ts: number; kind: string; text: string }>>(logKey(npcId))) ?? [];
+    return all.slice(-Math.max(1, Math.min(200, limit)));
+  }
+
   /**
    * List NPCs. Persisted (activated) NPCs are visible to everyone; RAM drafts
    * are visible ONLY to their owner (pass `viewerId`). No viewer → activated only.
