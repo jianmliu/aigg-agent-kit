@@ -649,7 +649,9 @@ export class SharedWorld {
         );
         if (prose) {
           diary = prose.trim();
-          await this.logEvent(npcId, 'dream', `夜里反思,炼出心得「${learned.slice(0, 24)}」,记了一篇夜记`);
+          await this.logEvent(npcId, 'dream', this.language === 'en'
+            ? `Reflected in the night — distilled the lesson "${learned.slice(0, 24)}" into a diary page`
+            : `夜里反思,炼出心得「${learned.slice(0, 24)}」,记了一篇夜记`);
           // store the 夜记 in pal's OWN store — it's a narrative artifact, not a
           // typed memory unit (aigg-memory's consolidate gates non-evidence units
           // out, so /memory/remember returns 200 but never persists a journal).
@@ -773,7 +775,9 @@ export class SharedWorld {
         description: `${rec.name} 凭已验证的警惕信念拒绝了 ${input.fromId} 的提议「${input.claim}」,守住了 ${input.amountGcc} GCC`,
         match: [input.fromId, input.npcId, 'pitch', 'deal'], outcome: 'gain',
       }, { corpus, evidence }).catch(() => {});
-      void this.logEvent(input.npcId, 'pitch', `识破了 ${input.fromId.split(':').pop()} 的「${input.claim.slice(0, 16)}」(${gate.faculty ? '亲历过亏' : '听过街谈'}),分文未失`);
+      void this.logEvent(input.npcId, 'pitch', this.language === 'en'
+        ? `Saw through ${input.fromId.split(':').pop()}'s "${input.claim.slice(0, 16)}" (${gate.faculty ? 'been burned before' : 'heard the street talk'}) — not a coin lost`
+        : `识破了 ${input.fromId.split(':').pop()} 的「${input.claim.slice(0, 16)}」(${gate.faculty ? '亲历过亏' : '听过街谈'}),分文未失`);
       return { accepted: false, protected: true, deltaGcc: 0, balanceGcc: bal0, discernment: gate };
     }
 
@@ -822,8 +826,8 @@ export class SharedWorld {
       belief = d?.beliefs?.[0];
     }
     void this.logEvent(input.npcId, 'pitch', scam
-      ? `中了 ${input.fromId.split(':').pop()} 的「${input.claim.slice(0, 16)}」骗局,亏 ${moved}`
-      : `接了 ${input.fromId.split(':').pop()} 的「${input.claim.slice(0, 16)}」,得利 ${gain}`);
+      ? (this.language === 'en' ? `Fell for ${input.fromId.split(':').pop()}'s "${input.claim.slice(0, 16)}" con — lost ${moved}` : `中了 ${input.fromId.split(':').pop()} 的「${input.claim.slice(0, 16)}」骗局,亏 ${moved}`)
+      : (this.language === 'en' ? `Took ${input.fromId.split(':').pop()}'s "${input.claim.slice(0, 16)}" — gained ${gain}` : `接了 ${input.fromId.split(':').pop()} 的「${input.claim.slice(0, 16)}」,得利 ${gain}`));
     return { accepted: true, protected: false, deltaGcc: gain - moved, balanceGcc: balance, belief };
   }
 
@@ -866,7 +870,9 @@ export class SharedWorld {
         derived_from: [hearsay],
         match: [input.about, 'trap']
       }, { corpus, evidence });
-      void this.logEvent(input.toNpcId, 'gossip', `听 ${speaker} 提起 ${input.about.split(':').pop()} 的事,记下警惕`);
+      void this.logEvent(input.toNpcId, 'gossip', this.language === 'en'
+        ? `Heard ${speaker} mention ${input.about.split(':').pop()} — noted the warning`
+        : `听 ${speaker} 提起 ${input.about.split(':').pop()} 的事,记下警惕`);
       return true;
     } catch { return false; }
   }
@@ -908,7 +914,9 @@ export class SharedWorld {
       derived_from: [epSlug],
       match: [thiefId, 'thief', 'trap'],
     }, { corpus, evidence }).catch(() => {});
-    void this.logEvent(victimId, 'steal', `被 ${thiefId.split(':').pop()} 扒走 ${amount} 银两,记下提防`);
+    void this.logEvent(victimId, 'steal', this.language === 'en'
+      ? `Pickpocketed by ${thiefId.split(':').pop()} — ${amount} silver gone; on guard now`
+      : `被 ${thiefId.split(':').pop()} 扒走 ${amount} 银两,记下提防`);
   }
 
   /**
@@ -1189,12 +1197,12 @@ export class SharedWorld {
     if (!this.rooms.includes(room)) throw new Error(`no room ${room}`);
     const draft = this.draftNpcs.get(npcId);
     if (draft) {
-      if (draft.room !== room) void this.logEvent(npcId, 'move', `走到 ${room}`);
+      if (draft.room !== room) void this.logEvent(npcId, 'move', this.language === 'en' ? `Walked to the ${room}` : `走到 ${room}`);
       this.draftNpcs.set(npcId, { ...draft, room }); return; // move stays in RAM
     }
     const rec = await this.store.get<NpcRecord>(W, npcKey(npcId));
     if (!rec) throw new Error(`no npc ${npcId}`);
-    if (rec.room !== room) void this.logEvent(npcId, 'move', `从 ${rec.room} 走到 ${room}`);
+    if (rec.room !== room) void this.logEvent(npcId, 'move', this.language === 'en' ? `Walked from the ${rec.room} to the ${room}` : `从 ${rec.room} 走到 ${room}`);
     await this.store.set(W, npcKey(npcId), { ...rec, room }, ONCHAIN);
     this.emit([{ kind: 'moved', npcId, room }], { now: Date.now() });
   }
@@ -1540,7 +1548,9 @@ export class SharedWorld {
       { now, tx: talkTx }
     );
 
-    if (oracleOut.say) void this.logEvent(input.npcId, 'say', `对 ${interlocutor.name} 说:「${oracleOut.say.slice(0, 40)}」`);
+    if (oracleOut.say) void this.logEvent(input.npcId, 'say', this.language === 'en'
+      ? `Said to ${interlocutor.name}: "${oracleOut.say.slice(0, 40)}"`
+      : `对 ${interlocutor.name} 说:「${oracleOut.say.slice(0, 40)}」`);
 
     // movement intent (goto 算子) — narrative-control gate (Ford 原则,
     // docs/specs/narrative-control.md):「叙事即权力,权力必须有闸」。
@@ -1555,9 +1565,13 @@ export class SharedWorld {
       const place = e.place.trim();
       if (mayCommand || persuaded) {
         this.pushGoto(input.npcId, place);
-        void this.logEvent(input.npcId, 'move', `打算动身去「${place}」${mayCommand ? '' : `(被${interlocutor.name}说动)`}`);
+        void this.logEvent(input.npcId, 'move', this.language === 'en'
+          ? `Setting out for "${place}"${mayCommand ? '' : ` (talked into it by ${interlocutor.name})`}`
+          : `打算动身去「${place}」${mayCommand ? '' : `(被${interlocutor.name}说动)`}`);
       } else {
-        void this.logEvent(input.npcId, 'move', `${interlocutor.name} 劝它去「${place}」——交情未到,嘴上应了,脚下没动`);
+        void this.logEvent(input.npcId, 'move', this.language === 'en'
+          ? `${interlocutor.name} urged a trip to "${place}" — not close enough; nodded along, went nowhere`
+          : `${interlocutor.name} 劝它去「${place}」——交情未到,嘴上应了,脚下没动`);
       }
     }
 
@@ -1702,7 +1716,9 @@ export class SharedWorld {
       }, { corpus, evidence }).catch(() => { /* 离账本、fire-and-forget,绝不抛 */ });
 
       // 步骤5:系统日志(复用既有 'gossip' kind,无需扩联合,fire-and-forget)。
-      void this.logEvent(o.id, 'gossip', `旁听 ${input.speakerName} 对 ${input.interlocutorName} 的话,记下`);
+      void this.logEvent(o.id, 'gossip', this.language === 'en'
+        ? `Overheard ${input.speakerName} talking to ${input.interlocutorName} — noted it`
+        : `旁听 ${input.speakerName} 对 ${input.interlocutorName} 的话,记下`);
 
       // 步骤4:插话 —— 仅被授权的 rich 听众(确定性首个 rich + ≤interjectMaxPerTalk)。
       // 复用 talk(_noOverhear:true) 走完整账本:烧 GCC + emit say/burned + 持久化余额 → tick 可锚定。
