@@ -54,6 +54,25 @@ export { ZeroGComputeProvider, ZEROG_ROUTER_TESTNET, ZEROG_ROUTER_MAINNET } from
 export type { ZeroGComputeProviderOptions } from './inference/zerog-compute-provider';
 export { ZeroGBrokerProvider } from './inference/zerog-broker-provider';
 export type { ZeroGBrokerProviderOptions, ZeroGBrokerWalletConfig, ZeroGBroker } from './inference/zerog-broker-provider';
+export {
+  AutopalAttestationVerifier,
+  computeResponseDigest,
+  verifyResponseSignature,
+  recoverResponsePublicKey,
+  extractReportData,
+  parseAttestationHeaders,
+  insecureAcceptAnyQuote,
+  ATTEST_HEADERS,
+  TDX_REPORT_DATA_OFFSET,
+} from './inference/autopal-attestation';
+export type {
+  ResponseDigestFields,
+  ResponseAttestation,
+  VerifyResponseResult,
+  QuoteVerifier,
+  AutopalVerifierOptions,
+  HeaderLike,
+} from './inference/autopal-attestation';
 // NOTE: ClaudeProvider is intentionally NOT re-exported here — it pulls
 // @anthropic-ai/sdk (node-heavy: node:fs, child_process) which must not enter the
 // browser bundle. Node-only consumers deep-import it:
