@@ -30,8 +30,13 @@ export interface ActionOracle {
   chooseAction(input: ActionOracleInput): Promise<ActionOracleOutput>;
 }
 
+/** Resolve which provider (brain) an NPC acts on, by id — mirrors the talk
+ *  oracle's ProviderResolver so both paths route per-NPC identically. */
+export type ProviderResolver = (npcId: string) => InferenceProvider;
+
 export interface LlmActionOracleOptions {
-  provider: InferenceProvider;
+  /** a single provider for all NPCs, or a resolver that picks one per npcId. */
+  provider: InferenceProvider | ProviderResolver;
   temperature?: number;
 }
 
@@ -75,7 +80,8 @@ export class LlmActionOracle implements ActionOracle {
     if (!knownIds.length) return { actionId: 'say', args: {}, fellBack: true } as ActionOracleOutput;
 
     let captured: InferenceResult | undefined;
-    const base = this.o.provider;
+    // route per-NPC when a resolver was given (a bare provider object is not callable).
+    const base = typeof this.o.provider === 'function' ? this.o.provider(input.ctx.persona.id) : this.o.provider;
     const proxy: InferenceProvider = { id: base.id, complete: async (req) => { const r = await base.complete(req); captured = r; return r; } };
 
     const { system, prompt } = buildChoicePrompt(input);

@@ -114,6 +114,12 @@ export interface OnchainBalanceProvider {
 export interface SharedWorldOptions {
   store: Store;
   provider: InferenceProvider;
+  /** Per-NPC brain routing. When set, an NPC's cognition runs on
+   *  providerFor(npcId) (falling back to `provider` when it returns undefined),
+   *  so one NPC can think on 0G and another on the Auto EVM market in the same
+   *  town. Explicit bindings from createNpc({ provider }) / setNpcProvider()
+   *  take precedence over this resolver; `provider` is the final fallback. */
+  providerFor?: (npcId: string) => InferenceProvider | undefined;
   metabolism?: Metabolism;
   rooms?: string[];
   /**
@@ -259,6 +265,9 @@ export interface SharedWorldOptions {
 export class SharedWorld {
   private readonly store: Store;
   private readonly provider: InferenceProvider;
+  /** per-NPC brain bindings (createNpc/setNpcProvider) + host resolver opt. */
+  private readonly npcProviders = new Map<string, InferenceProvider>();
+  private readonly providerForOpt?: (npcId: string) => InferenceProvider | undefined;
   private readonly metabolism: Metabolism;
   private readonly memory?: AiggMemoryClient;
   private readonly memoryModel?: { aiggUrl: string; aiggKey?: string; model?: string; backend?: string; timeout?: number };
@@ -304,6 +313,7 @@ export class SharedWorld {
   constructor(opts: SharedWorldOptions) {
     this.store = opts.store;
     this.provider = opts.provider;
+    this.providerForOpt = opts.providerFor;
     this.metabolism = opts.metabolism ?? DEFAULT_METABOLISM;
     this.memory = opts.memory;
     this.memoryModel = opts.memoryModel;
@@ -316,7 +326,8 @@ export class SharedWorld {
     this.settlement = opts.settlement;
     this.balances = opts.balances;
     // default oracle wraps the same LlmAgent reasoning; SharedWorld gates metabolism itself.
-    this.oracle = opts.oracle ?? new LlmInferenceOracle({ provider: this.provider });
+    // Pass a resolver so per-NPC brain routing (providerFor / setNpcProvider) is honored.
+    this.oracle = opts.oracle ?? new LlmInferenceOracle({ provider: (npcId: string) => this.resolveProvider(npcId) });
     this.settlementLayer = opts.settlementLayer;
     this.personaResolver = opts.personaResolver;
     this.needsCfg = opts.needs ?? DEFAULT_NEEDS_CONFIG;
@@ -396,8 +407,10 @@ export class SharedWorld {
    * - default (platform seeding, pre-funded NPCs): persisted + active
    *   immediately, exactly as before. Backwards-compatible.
    */
-  async createNpc(input: { name: string; owner: string; background: string; room?: string; startGcc?: number; startSilver?: number; id?: string; draft?: boolean }): Promise<string> {
+  async createNpc(input: { name: string; owner: string; background: string; room?: string; startGcc?: number; startSilver?: number; id?: string; draft?: boolean; provider?: InferenceProvider }): Promise<string> {
     const id = input.id ?? `npc:${input.name}:${input.owner}`;
+    // bind this NPC's brain up front (draft or active) so its very first thought routes right.
+    if (input.provider) this.npcProviders.set(id, input.provider);
     const room = input.room && this.rooms.includes(input.room) ? input.room : this.rooms[0];
     if (input.draft) {
       const rec: NpcRecord = { id, name: input.name, owner: input.owner, room, background: input.background.trim(), status: 'draft' };
@@ -415,6 +428,19 @@ export class SharedWorld {
     void this.seedGoal(rec); // fire-and-forget: give the NPC a planning seed (kind=goal) so plan() has something to plan toward
     this.emit([{ kind: 'npcCreated', npcId: id, status: 'active' }], { now: Date.now() });
     return id;
+  }
+
+  /** Bind an NPC to a specific brain after creation — e.g. move one NPC onto the
+   *  Auto EVM market while the rest think on 0G. Takes precedence over the
+   *  providerFor resolver; pass the same provider you'd give the constructor. */
+  setNpcProvider(npcId: string, provider: InferenceProvider): void {
+    this.npcProviders.set(npcId, provider);
+  }
+
+  /** Resolve the brain for an NPC: an explicit binding (createNpc/setNpcProvider)
+   *  or the providerFor resolver wins; the default `provider` is the fallback. */
+  private resolveProvider(npcId: string): InferenceProvider {
+    return this.npcProviders.get(npcId) ?? this.providerForOpt?.(npcId) ?? this.provider;
   }
 
   /** Write a kind=goal unit from the NPC's persona — plan() synthesizes intentions

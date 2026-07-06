@@ -15,6 +15,7 @@
   },
   "scripts": {
     "test:world": "tsx src/__tests__/shared-world.smoke.ts",
+    "test:per-npc-provider": "tsx src/__tests__/per-npc-provider.smoke.ts",
     "test:dsn": "tsx src/__tests__/shared-world-dsn.smoke.ts",
     "test:memory": "tsx src/__tests__/shared-world-memory.smoke.ts",
     "test:platform": "tsx src/__tests__/aigg-platform-npcs.smoke.ts",

@@ -48,8 +48,14 @@ export interface InferenceOracle {
   produce(input: OracleInput): Promise<OracleOutput>;
 }
 
+/** Resolve which provider (brain) an NPC thinks on, by id. A `function` value
+ *  routes per-NPC (e.g. one NPC on 0G, another on the Auto EVM market); an
+ *  InferenceProvider object is used for every NPC. */
+export type ProviderResolver = (npcId: string) => InferenceProvider;
+
 export interface LlmInferenceOracleOptions {
-  provider: InferenceProvider;
+  /** a single provider for all NPCs, or a resolver that picks one per npcId. */
+  provider: InferenceProvider | ProviderResolver;
   /** optional cognitive metabolism — starving NPCs return a scripted line, no LLM, no GCC. */
   metabolism?: Metabolism;
   /** line spoken when starving. */
@@ -63,7 +69,8 @@ export class LlmInferenceOracle implements InferenceOracle {
   async produce(input: OracleInput): Promise<OracleOutput> {
     // capture the raw InferenceResult (usage + attestation) via a proxy provider.
     let captured: InferenceResult | undefined;
-    const base = this.o.provider;
+    // route per-NPC when a resolver was given (a bare provider object is not callable).
+    const base = typeof this.o.provider === 'function' ? this.o.provider(input.npcId) : this.o.provider;
     const proxy: InferenceProvider = { id: base.id, complete: async (req) => { const r = await base.complete(req); captured = r; return r; } };
 
     // seed a one-shot in-memory relationship so LlmAgent's prompt sees input.rel
