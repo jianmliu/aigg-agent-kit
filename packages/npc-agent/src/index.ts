@@ -73,6 +73,19 @@ export type {
   AutopalVerifierOptions,
   HeaderLike,
 } from './inference/autopal-attestation';
+export {
+  AutoPalBrokerProvider,
+  ViemRegistryReader,
+  HttpQuoteFetcher,
+  autoPalBrokerFromRpc,
+} from './inference/autopal-broker-provider';
+export type {
+  AutoPalBrokerProviderOptions,
+  AutoPalBrokerRpcConfig,
+  RegistryService,
+  RegistryReader,
+  QuoteFetcher,
+} from './inference/autopal-broker-provider';
 // NOTE: ClaudeProvider is intentionally NOT re-exported here — it pulls
 // @anthropic-ai/sdk (node-heavy: node:fs, child_process) which must not enter the
 // browser bundle. Node-only consumers deep-import it:
