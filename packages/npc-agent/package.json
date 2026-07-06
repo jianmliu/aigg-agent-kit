@@ -22,7 +22,8 @@
     "test:needs": "tsx src/__tests__/needs.smoke.ts",
     "test:tiering": "tsx src/__tests__/cross-server-tiering.smoke.ts",
     "test:asyncarchive": "tsx src/__tests__/tiered-async-archive.smoke.ts",
-    "test:attest": "tsx src/__tests__/autopal-attestation.smoke.ts"
+    "test:attest": "tsx src/__tests__/autopal-attestation.smoke.ts",
+    "test:autopal": "tsx src/__tests__/autopal-broker.smoke.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
