@@ -23,7 +23,7 @@ export type { LuckConfig, LuckEventTx } from './stf/luck';
 export { TickCommitter, ViemTickAnchor, tickEventsHash, verifyTickBlob } from './stf/tick-committer';
 export type { TickBlob, TickAnchor, TickCommitResult, ViemTickAnchorOptions } from './stf/tick-committer';
 export { LlmInferenceOracle } from './stf/inference-oracle';
-export type { InferenceOracle, OracleInput, OracleOutput, LlmInferenceOracleOptions } from './stf/inference-oracle';
+export type { InferenceOracle, OracleInput, OracleOutput, LlmInferenceOracleOptions, ProviderResolver } from './stf/inference-oracle';
 // Agent action loop (spec docs/specs/agent-action-loop.md §4 P1) — ActionRegistry +
 // the 5 收编 builtins + the action-choice oracle (the impure, signable turn input).
 export { ActionRegistry, builtinActions } from './actions';
