@@ -6,6 +6,9 @@ cache/
 # pnpm lockfile is not tracked here — the engine is consumed as a workspace/git
 # dep and installs resolve at the consumer; keep it out of the tree.
 pnpm-lock.yaml
+# …except the ai3-inference interim workspace: self-contained, destined for its
+# own repo (subtree split), so its CI needs a frozen lockfile.
+!ai3-inference/pnpm-lock.yaml
 # foundry
 contracts/**/out/
 contracts/**/cache/

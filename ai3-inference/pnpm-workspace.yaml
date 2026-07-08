@@ -1,0 +1,7 @@
+# Self-contained workspace — interim home is a top-level directory of aigg-agent-kit;
+# history moves out with `git subtree split` when the standalone repo is created
+# (see aigg-src docs/superpowers/plans/2026-07-08-ai3-inference-extraction-plan.md).
+packages:
+  - packages/*
+  - conformance
+  - contracts

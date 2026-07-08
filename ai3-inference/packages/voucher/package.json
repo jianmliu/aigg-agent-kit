@@ -1,0 +1,14 @@
+{
+  "name": "@ai3-inference/voucher",
+  "version": "0.0.1",
+  "private": true,
+  "description": "EIP-712 voucher build/sign matching InferenceLedger.sol byte-for-byte (plan T8)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "node --test dist/"
+  }
+}

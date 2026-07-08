@@ -1,0 +1,12 @@
+{
+  "870": {
+    "chain": "autoEvmMainnet",
+    "serviceRegistry": null,
+    "inferenceLedger": null
+  },
+  "8700": {
+    "chain": "chronos",
+    "serviceRegistry": null,
+    "inferenceLedger": null
+  }
+}

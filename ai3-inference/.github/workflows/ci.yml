@@ -1,0 +1,21 @@
+# Becomes active once ai3-inference is split into its own repository
+# (nested workflow files do not run from the interim home inside aigg-agent-kit;
+# until the split, run the same three commands locally / from the host repo CI).
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+      - run: pnpm --filter @ai3-inference/contracts test
