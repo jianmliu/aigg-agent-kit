@@ -9,9 +9,14 @@ Extraction plan (task list T1–T10, milestones V1–V3):
 Market design: aigg-src `docs/superpowers/specs/2026-07-05-autoevm-provider-market-design.md`;
 fusion: `2026-07-08-fusion-orchestration-design.md`.
 
-> **Interim home.** This directory lives inside `aigg-agent-kit` until the
-> standalone repo exists; history moves out with `git subtree split`. It is a
-> **self-contained pnpm workspace** — run all commands from this directory.
+> **Homes.** Standalone repo: <https://github.com/jianmliu/ai3-inference>
+> (private), populated via `git subtree split --prefix=ai3-inference` from
+> `aigg-agent-kit`. This in-kit copy remains the WORKING interim home while
+> consumers resolve `@ai3-inference/*` through the kit workspace — develop
+> here, sync the standalone repo with another subtree split/push. The
+> direction flips (standalone becomes canonical, kit consumes a published
+> package) at plan T10. It is a **self-contained pnpm workspace** — run all
+> commands from this directory.
 
 | Piece | Status |
 |---|---|
