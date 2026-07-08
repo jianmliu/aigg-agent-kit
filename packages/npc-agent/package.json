@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "sideEffects": false,
-  "description": "Engine-neutral NPC agent runtime: contracts (intent/effect/store/ports), memory, inference, resolver. Zero PAL/game-engine deps by design — the brain must not know which game skin it runs in.",
+  "description": "Engine-neutral NPC agent runtime: contracts (intent/effect/store/ports), memory, inference, resolver. Zero PAL/game-engine deps by design \u2014 the brain must not know which game skin it runs in.",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
@@ -22,8 +22,8 @@
     "test:needs": "tsx src/__tests__/needs.smoke.ts",
     "test:tiering": "tsx src/__tests__/cross-server-tiering.smoke.ts",
     "test:asyncarchive": "tsx src/__tests__/tiered-async-archive.smoke.ts",
-    "test:attest": "tsx src/__tests__/autopal-attestation.smoke.ts",
-    "test:autopal": "tsx src/__tests__/autopal-broker.smoke.ts"
+    "test:attest": "tsx src/__tests__/autoinf-attestation.smoke.ts",
+    "test:autoinf": "tsx src/__tests__/autoinf-broker.smoke.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",

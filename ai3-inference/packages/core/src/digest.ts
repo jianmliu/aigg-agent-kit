@@ -9,7 +9,7 @@
  *
  * This is the REFERENCE implementation — byte-identical to the Go signer
  * (aigg-src backend/internal/service/attest.PayloadDigest / eip191Hash) and to
- * the kit's autopal attestation module. The shared fixture
+ * @ai3-inference/verify's AutoInf attestation module. The shared fixture
  * ../vectors/digest-vectors.json is asserted on both sides (TS test here, Go
  * test in aigg-src) so the two languages cannot drift silently.
  */

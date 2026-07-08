@@ -1,5 +1,5 @@
 /**
- * autopal-broker smoke — AutoPalBrokerProvider end-to-end against a SIMULATED
+ * autoinf-broker smoke — AutoInfBrokerProvider end-to-end against a SIMULATED
  * gateway. A fake fetch plays the enclave: it computes the same digest the
  * client will (keccak(reqBody) ‖ keccak(respBody) ‖ model ‖ tokens), signs it
  * with a test key, and returns the attestation as response headers. A fake
@@ -8,13 +8,13 @@
  *   pick the service by model/price → verify the quote once → verify the
  *   response signature → stamp dstack:verified:<id> → price the usage.
  *
- * Run: tsx src/__tests__/autopal-broker.smoke.ts
+ * Run: tsx src/__tests__/autoinf-broker.smoke.ts
  */
 import assert from 'node:assert/strict';
 import { keccak256, stringToBytes, hexToBytes, type Hex, type Address } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import {
-  AutoPalBrokerProvider,
+  AutoInfBrokerProvider,
   computeResponseDigest,
   ATTEST_HEADERS,
   TDX_REPORT_DATA_OFFSET,
@@ -42,7 +42,7 @@ const ATTESTATION_REF = keccak256(QUOTE);
 function svc(over: Partial<RegistryService> = {}): RegistryService {
   return {
     provider: '0x00000000000000000000000000000000000000A1' as Address,
-    endpoint: 'https://gw.autopal.example/v1',
+    endpoint: 'https://gw.autoinf.example/v1',
     models: ['claude-opus-4-8'],
     inputPriceWei: 1000n,
     outputPriceWei: 2000n,
@@ -108,7 +108,7 @@ function gatewayFetch(opts: { tamperBody?: boolean; omitSig?: boolean } = {}): t
 async function main() {
   // 1. happy path: verified verdict + priced usage.
   {
-    const p = new AutoPalBrokerProvider({
+    const p = new AutoInfBrokerProvider({
       registry,
       quotes,
       quoteVerifier: insecureAcceptAnyQuote,
@@ -128,7 +128,7 @@ async function main() {
 
   // 2. tampered response body → signature no longer matches → no token.
   {
-    const p = new AutoPalBrokerProvider({
+    const p = new AutoInfBrokerProvider({
       registry,
       quotes,
       quoteVerifier: insecureAcceptAnyQuote,
@@ -141,7 +141,7 @@ async function main() {
 
   // 3. requireVerified + missing signature header → throws.
   {
-    const p = new AutoPalBrokerProvider({
+    const p = new AutoInfBrokerProvider({
       registry,
       quotes,
       quoteVerifier: insecureAcceptAnyQuote,
@@ -161,7 +161,7 @@ async function main() {
   // 4. quote ref mismatch → verify fails (no token), but response still returns.
   {
     const badQuotes: QuoteFetcher = { fetch: async () => new Uint8Array(TDX_REPORT_DATA_OFFSET + 64) };
-    const p = new AutoPalBrokerProvider({
+    const p = new AutoInfBrokerProvider({
       registry,
       quotes: badQuotes,
       quoteVerifier: insecureAcceptAnyQuote,
@@ -177,7 +177,7 @@ async function main() {
   {
     const cheap = svc({ provider: '0x00000000000000000000000000000000000000B2' as Address, inputPriceWei: 10n });
     const multi: RegistryReader = { list: async () => [svc(), cheap] };
-    const p = new AutoPalBrokerProvider({
+    const p = new AutoInfBrokerProvider({
       registry: multi,
       quotes,
       quoteVerifier: insecureAcceptAnyQuote,
@@ -190,7 +190,7 @@ async function main() {
 
   // 6. model not offered → ensureService throws.
   {
-    const p = new AutoPalBrokerProvider({
+    const p = new AutoInfBrokerProvider({
       registry,
       quotes,
       quoteVerifier: insecureAcceptAnyQuote,
@@ -206,7 +206,14 @@ async function main() {
     assert.equal(threw, true, 'unavailable model must throw');
   }
 
-  console.log('autopal-broker smoke: OK (6 groups — verify-only provider e2e)');
+  // ── 7. rename back-compat: deprecated AutoPal aliases are the same bindings ──
+  {
+    const legacy = await import('../inference/autopal-broker-provider');
+    assert.equal(legacy.AutoPalBrokerProvider, AutoInfBrokerProvider);
+    assert.equal(legacy.autoPalBrokerFromRpc, legacy.autoInfBrokerFromRpc);
+  }
+
+  console.log('autoinf-broker smoke: OK (7 groups — verify-only provider e2e + alias back-compat)');
 }
 
 main().catch((e) => {

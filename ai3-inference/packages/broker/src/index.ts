@@ -1,9 +1,10 @@
 /**
  * @ai3-inference/broker — registry-driven consumer broker (moved from
  * aigg-agent-kit npc-agent per extraction plan T4). Deps: viem + fetch only;
- * the kit re-exports for compatibility, so 0gtown's AUTOPAL_* env and import
- * paths keep working unchanged.
+ * renamed autopal → autoinf 2026-07-08 (inference infra, not a PAL app
+ * concept); the kit re-exports deprecated AutoPal aliases so old import
+ * paths and submodule pointers keep working.
  */
 export const AI3_BROKER_VERSION = '0.0.1';
 
-export * from './autopal-broker-provider.js';
+export * from './autoinf-broker-provider.js';

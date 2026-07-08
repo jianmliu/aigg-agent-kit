@@ -2,7 +2,7 @@
   "name": "@ai3-inference/broker",
   "version": "0.0.1",
   "private": true,
-  "description": "autoPalBrokerFromRpc — registry-driven consumer broker for Auto EVM provider markets (plan T4)",
+  "description": "autoInfBrokerFromRpc — registry-driven consumer broker for Auto EVM provider markets (plan T4)",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",

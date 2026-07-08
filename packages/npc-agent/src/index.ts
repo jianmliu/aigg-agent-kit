@@ -55,7 +55,8 @@ export type { ZeroGComputeProviderOptions } from './inference/zerog-compute-prov
 export { ZeroGBrokerProvider } from './inference/zerog-broker-provider';
 export type { ZeroGBrokerProviderOptions, ZeroGBrokerWalletConfig, ZeroGBroker } from './inference/zerog-broker-provider';
 export {
-  AutopalAttestationVerifier,
+  AutoInfAttestationVerifier,
+  AutopalAttestationVerifier, // deprecated alias
   computeResponseDigest,
   verifyResponseSignature,
   recoverResponsePublicKey,
@@ -70,18 +71,23 @@ export type {
   ResponseAttestation,
   VerifyResponseResult,
   QuoteVerifier,
-  AutopalVerifierOptions,
+  AutoInfVerifierOptions,
+  AutopalVerifierOptions, // deprecated alias
   HeaderLike,
 } from './inference/autopal-attestation';
 export {
-  AutoPalBrokerProvider,
+  AutoInfBrokerProvider,
+  AutoPalBrokerProvider, // deprecated alias
   ViemRegistryReader,
   HttpQuoteFetcher,
-  autoPalBrokerFromRpc,
+  autoInfBrokerFromRpc,
+  autoPalBrokerFromRpc, // deprecated alias
 } from './inference/autopal-broker-provider';
 export type {
-  AutoPalBrokerProviderOptions,
-  AutoPalBrokerRpcConfig,
+  AutoInfBrokerProviderOptions,
+  AutoPalBrokerProviderOptions, // deprecated alias
+  AutoInfBrokerRpcConfig,
+  AutoPalBrokerRpcConfig, // deprecated alias
   RegistryService,
   RegistryReader,
   QuoteFetcher,

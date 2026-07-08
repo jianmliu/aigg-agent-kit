@@ -1,5 +1,5 @@
 /**
- * AutoPalBrokerProvider — verifiable NPC inference through the Auto EVM provider
+ * AutoInfBrokerProvider — verifiable NPC inference through the Auto EVM provider
  * market (aigg-src), the mirror of ZeroGBrokerProvider for the AI3-denominated
  * marketplace. It satisfies the same InferenceProvider seam, so 0gtown / mud-demo
  * consume it with zero host changes: an NPC picks between 0G TeeML (open weights)
@@ -22,7 +22,7 @@
 import { keccak256, stringToBytes, getAddress, createPublicClient, http, type Address, type Hex } from 'viem';
 import type { InferenceProvider, InferenceRequest, InferenceResult, Attestation } from '@ai3-inference/core';
 import {
-  AutopalAttestationVerifier,
+  AutoInfAttestationVerifier,
   recoverResponsePublicKey,
   parseAttestationHeaders,
   insecureAcceptAnyQuote,
@@ -53,7 +53,7 @@ export interface QuoteFetcher {
   fetch(attestationRef: Hex): Promise<Uint8Array>;
 }
 
-export interface AutoPalBrokerProviderOptions {
+export interface AutoInfBrokerProviderOptions {
   registry: RegistryReader;
   quotes: QuoteFetcher;
   /** TDX/DCAP quote verifier. Defaults to insecureAcceptAnyQuote WITH a warning
@@ -77,11 +77,11 @@ export interface AutoPalBrokerProviderOptions {
 
 interface ChosenService {
   svc: RegistryService;
-  verifier: AutopalAttestationVerifier;
+  verifier: AutoInfAttestationVerifier;
 }
 
-export class AutoPalBrokerProvider implements InferenceProvider {
-  readonly id = 'autopal-broker';
+export class AutoInfBrokerProvider implements InferenceProvider {
+  readonly id = 'autoinf-broker';
   private readonly registry: RegistryReader;
   private readonly quotes: QuoteFetcher;
   private readonly quoteVerifier: QuoteVerifier;
@@ -93,18 +93,18 @@ export class AutoPalBrokerProvider implements InferenceProvider {
   private readonly weiPerAI3: number;
   private chosen?: ChosenService;
 
-  constructor(opts: AutoPalBrokerProviderOptions) {
+  constructor(opts: AutoInfBrokerProviderOptions) {
     this.registry = opts.registry;
     this.quotes = opts.quotes;
     if (!opts.quoteVerifier) {
       console.warn(
-        '[AutoPalBrokerProvider] no quoteVerifier — using insecureAcceptAnyQuote; ' +
+        '[AutoInfBrokerProvider] no quoteVerifier — using insecureAcceptAnyQuote; ' +
           'the TDX hardware root is NOT checked. Provide a DCAP verifier in production.',
       );
     }
     this.quoteVerifier = opts.quoteVerifier ?? insecureAcceptAnyQuote;
     const f = opts.fetchImpl ?? (typeof fetch === 'function' ? fetch : undefined);
-    if (!f) throw new Error('[AutoPalBrokerProvider] no fetch implementation available');
+    if (!f) throw new Error('[AutoInfBrokerProvider] no fetch implementation available');
     this.fetchImpl = f;
     this.preferredModel = opts.model;
     this.pinnedProvider = opts.providerAddress ? getAddress(opts.providerAddress) : undefined;
@@ -122,24 +122,24 @@ export class AutoPalBrokerProvider implements InferenceProvider {
     if (this.chosen) return this.chosen;
     const wanted = model ?? this.preferredModel;
     const services = (await this.registry.list()).filter((s) => s.active);
-    if (services.length === 0) throw new Error('[AutoPalBrokerProvider] registry has no active services');
+    if (services.length === 0) throw new Error('[AutoInfBrokerProvider] registry has no active services');
 
     let pool = services;
     if (this.pinnedProvider) {
       pool = services.filter((s) => getAddress(s.provider) === this.pinnedProvider);
-      if (pool.length === 0) throw new Error(`[AutoPalBrokerProvider] pinned provider ${this.pinnedProvider} not listed/active`);
+      if (pool.length === 0) throw new Error(`[AutoInfBrokerProvider] pinned provider ${this.pinnedProvider} not listed/active`);
     }
     if (wanted) {
       const byModel = pool.filter((s) => s.models.includes(wanted));
       if (byModel.length > 0) pool = byModel;
       else if (this.preferredModel) {
-        throw new Error(`[AutoPalBrokerProvider] no active service offers model ${wanted}`);
+        throw new Error(`[AutoInfBrokerProvider] no active service offers model ${wanted}`);
       }
     }
     // cheapest by input price (stable: ties keep registry order).
     const svc = pool.reduce((best, s) => (s.inputPriceWei < best.inputPriceWei ? s : best), pool[0]);
 
-    const verifier = new AutopalAttestationVerifier({
+    const verifier = new AutoInfAttestationVerifier({
       attestedSigner: svc.attestedSigner,
       attestationRef: svc.attestationRef,
       quoteVerifier: this.quoteVerifier,
@@ -176,14 +176,14 @@ export class AutoPalBrokerProvider implements InferenceProvider {
     // Read the RAW response bytes before parsing so responseHash matches the
     // gateway's keccak(response body) exactly.
     const rawText = await res.text();
-    if (!res.ok) throw new Error(`[AutoPalBrokerProvider] HTTP ${res.status}: ${rawText}`);
+    if (!res.ok) throw new Error(`[AutoInfBrokerProvider] HTTP ${res.status}: ${rawText}`);
     const responseHash = keccak256(stringToBytes(rawText));
 
     let data: any;
     try {
       data = JSON.parse(rawText);
     } catch {
-      throw new Error('[AutoPalBrokerProvider] non-JSON response body');
+      throw new Error('[AutoInfBrokerProvider] non-JSON response body');
     }
     const text: string = data?.choices?.[0]?.message?.content ?? '';
     const inputTokens = Number(data?.usage?.prompt_tokens ?? 0);
@@ -197,7 +197,7 @@ export class AutoPalBrokerProvider implements InferenceProvider {
       if (verdict) signature = verdict;
     }
     if (!signature && this.requireVerified) {
-      throw new Error('[AutoPalBrokerProvider] response could not be verified (requireVerified)');
+      throw new Error('[AutoInfBrokerProvider] response could not be verified (requireVerified)');
     }
 
     const costWei = svc.inputPriceWei * BigInt(inputTokens) + svc.outputPriceWei * BigInt(outputTokens);
@@ -225,7 +225,7 @@ export class AutoPalBrokerProvider implements InferenceProvider {
    *  verdict token on success, undefined otherwise (never throws — verification
    *  failure degrades gracefully unless requireVerified upstream). */
   private async verifyAttestation(
-    verifier: AutopalAttestationVerifier,
+    verifier: AutoInfAttestationVerifier,
     svc: RegistryService,
     att: ResponseAttestation,
   ): Promise<string | undefined> {
@@ -236,7 +236,7 @@ export class AutoPalBrokerProvider implements InferenceProvider {
       const v = await verifier.verifyResponse(att);
       return v.verified ? v.token : undefined;
     } catch (e) {
-      console.warn('[AutoPalBrokerProvider] attestation verify failed:', e instanceof Error ? e.message : e);
+      console.warn('[AutoInfBrokerProvider] attestation verify failed:', e instanceof Error ? e.message : e);
       return undefined;
     }
   }
@@ -338,8 +338,8 @@ export class HttpQuoteFetcher implements QuoteFetcher {
   }
 }
 
-/** Config for AutoPalBrokerProvider.fromRpc — the production wiring. */
-export interface AutoPalBrokerRpcConfig {
+/** Config for AutoInfBrokerProvider.fromRpc — the production wiring. */
+export interface AutoInfBrokerRpcConfig {
   rpcUrl: string;              // Auto EVM JSON-RPC
   registryAddress: string;    // ServiceRegistry contract
   dsnBaseUrl: string;         // DSN read gateway for quote blobs
@@ -352,8 +352,8 @@ export interface AutoPalBrokerRpcConfig {
 }
 
 /** fromRpc builds the provider against a live Auto EVM RPC + DSN gateway. */
-export function autoPalBrokerFromRpc(cfg: AutoPalBrokerRpcConfig): AutoPalBrokerProvider {
-  return new AutoPalBrokerProvider({
+export function autoInfBrokerFromRpc(cfg: AutoInfBrokerRpcConfig): AutoInfBrokerProvider {
+  return new AutoInfBrokerProvider({
     registry: new ViemRegistryReader(cfg.rpcUrl, cfg.registryAddress),
     quotes: new HttpQuoteFetcher(cfg.dsnBaseUrl, { fetchImpl: cfg.fetchImpl }),
     quoteVerifier: cfg.quoteVerifier,

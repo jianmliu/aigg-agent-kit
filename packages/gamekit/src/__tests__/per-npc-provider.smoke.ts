@@ -33,7 +33,7 @@ function fakeProvider(id: string, say: string, sig: string): InferenceProvider &
 
 async function main() {
   const zerog = fakeProvider('0g-broker', 'A-Bao: the tea is hot tonight.', '0g-teeml:verified:chatA');
-  const autopal = fakeProvider('autopal-broker', 'Mei: fresh fish, verified on-chain.', 'dstack:verified:respB');
+  const autoinf = fakeProvider('autoinf-broker', 'Mei: fresh fish, verified on-chain.', 'dstack:verified:respB');
   // a default provider that must NOT be hit for the two bound NPCs.
   const fallback = fakeProvider('fallback', 'nobody', 'none');
 
@@ -41,14 +41,14 @@ async function main() {
 
   // Bind at creation: A-Bao thinks on 0G, Mei on the Auto EVM market.
   await world.createNpc({ id: 'npc:abao', name: 'A-Bao', owner: 'sys', background: 'tea seller', startGcc: 5, provider: zerog });
-  await world.createNpc({ id: 'npc:mei', name: 'Mei', owner: 'sys', background: 'fishmonger', startGcc: 5, provider: autopal });
+  await world.createNpc({ id: 'npc:mei', name: 'Mei', owner: 'sys', background: 'fishmonger', startGcc: 5, provider: autoinf });
 
   const a = await world.talk({ npcId: 'npc:abao', visitorId: 'v1', text: 'evening', lang: 'en' });
   const m = await world.talk({ npcId: 'npc:mei', visitorId: 'v1', text: 'evening', lang: 'en' });
 
   // Each reached ONLY its own provider.
   assert.equal(zerog.calls, 1, 'A-Bao routed to the 0G provider exactly once');
-  assert.equal(autopal.calls, 1, 'Mei routed to the Auto EVM provider exactly once');
+  assert.equal(autoinf.calls, 1, 'Mei routed to the Auto EVM provider exactly once');
   assert.equal(fallback.calls, 0, 'default provider must not be hit for bound NPCs');
 
   // Each carries its own market's attestation.
@@ -58,9 +58,9 @@ async function main() {
   assert.ok(String(m.said).includes('fish'), 'Mei said the Auto EVM provider line');
 
   // setNpcProvider re-binds after creation: move A-Bao onto the market too.
-  world.setNpcProvider('npc:abao', autopal);
+  world.setNpcProvider('npc:abao', autoinf);
   await world.talk({ npcId: 'npc:abao', visitorId: 'v1', text: 'again', lang: 'en' });
-  assert.equal(autopal.calls, 2, 'A-Bao now routed to the Auto EVM provider after re-bind');
+  assert.equal(autoinf.calls, 2, 'A-Bao now routed to the Auto EVM provider after re-bind');
   assert.equal(zerog.calls, 1, '0G provider not hit again after re-bind');
 
   // An UNBOUND NPC falls back to the default provider.

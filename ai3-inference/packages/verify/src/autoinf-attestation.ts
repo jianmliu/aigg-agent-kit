@@ -1,5 +1,5 @@
 /**
- * AutoPal attestation verification — the CLIENT side of the Auto EVM provider
+ * AutoInf attestation verification — the CLIENT side of the Auto EVM provider
  * market's Phase A (spec 2026-07-05-autoevm-provider-market-design.md §3.3, §6, §9).
  *
  * The gateway (a dstack CVM) publishes to the on-chain ServiceRegistry:
@@ -24,7 +24,7 @@
  * claimed weights. Surface it as "TEE-verified relay", never "…inference".
  *
  * Crypto via viem (keccak256 / secp256k1 recover). Pure functions are exported so
- * a full AutoPalBrokerProvider (Phase C) reuses them.
+ * a full AutoInfBrokerProvider (Phase C) reuses them.
  */
 import {
   keccak256,
@@ -94,7 +94,7 @@ export async function recoverResponsePublicKey(att: ResponseAttestation): Promis
   const pub = await recoverPublicKey({ hash, signature: att.signature }); // 0x04‖X‖Y
   const bytes = hexToBytes(pub);
   if (bytes.length !== 65 || bytes[0] !== 0x04) {
-    throw new Error('[autopal-attest] unexpected recovered pubkey length');
+    throw new Error('[autoinf-attest] unexpected recovered pubkey length');
   }
   return bytes.slice(1); // 64 bytes
 }
@@ -111,7 +111,7 @@ export const TDX_REPORT_DATA_OFFSET = 568;
  */
 export function extractReportData(quote: Uint8Array, offset: number = TDX_REPORT_DATA_OFFSET): Uint8Array {
   if (quote.length < offset + 64) {
-    throw new Error(`[autopal-attest] quote too short for report_data at offset ${offset} (len ${quote.length})`);
+    throw new Error(`[autoinf-attest] quote too short for report_data at offset ${offset} (len ${quote.length})`);
   }
   return quote.slice(offset, offset + 64);
 }
@@ -132,7 +132,7 @@ export type QuoteVerifier = (quote: Uint8Array) => Promise<boolean>;
  */
 export const insecureAcceptAnyQuote: QuoteVerifier = async () => true;
 
-export interface AutopalVerifierOptions {
+export interface AutoInfVerifierOptions {
   attestedSigner: Address;       // ServiceRegistry Service.attestedSigner
   attestationRef: Hex;           // ServiceRegistry Service.attestationRef (keccak of quote)
   /** verifies the TDX quote cryptographically; REQUIRED for a real guarantee. */
@@ -142,17 +142,17 @@ export interface AutopalVerifierOptions {
 }
 
 /**
- * AutopalAttestationVerifier — holds a provider's registry attestation and
+ * AutoInfAttestationVerifier — holds a provider's registry attestation and
  * verifies its responses. verifyQuoteOnce is cached; verifyResponse is per-call.
  */
-export class AutopalAttestationVerifier {
+export class AutoInfAttestationVerifier {
   readonly attestedSigner: Address;
   readonly attestationRef: Hex;
   private readonly quoteVerifier: QuoteVerifier;
   private readonly reportDataOffset: number;
   private quoteVerified: Promise<void> | null = null;
 
-  constructor(opts: AutopalVerifierOptions) {
+  constructor(opts: AutoInfVerifierOptions) {
     this.attestedSigner = getAddress(opts.attestedSigner);
     this.attestationRef = opts.attestationRef.toLowerCase() as Hex;
     this.quoteVerifier = opts.quoteVerifier;
@@ -175,16 +175,16 @@ export class AutopalAttestationVerifier {
     const run = (async () => {
       const blobRef = keccak256(quoteBlob).toLowerCase();
       if (blobRef !== this.attestationRef) {
-        throw new Error(`[autopal-attest] quote blob ref ${blobRef} != registered attestationRef ${this.attestationRef}`);
+        throw new Error(`[autoinf-attest] quote blob ref ${blobRef} != registered attestationRef ${this.attestationRef}`);
       }
       const reportData = extractReportData(quoteBlob, this.reportDataOffset);
       const expect = hexToBytes(keccak256(signerPubkey)); // 32 bytes
       const bound = reportData.slice(0, 32);
       if (bytesToHex(bound) !== bytesToHex(expect)) {
-        throw new Error('[autopal-attest] quote report_data does not bind the response signer pubkey');
+        throw new Error('[autoinf-attest] quote report_data does not bind the response signer pubkey');
       }
       const ok = await this.quoteVerifier(quoteBlob);
-      if (!ok) throw new Error('[autopal-attest] TDX quote failed cryptographic verification');
+      if (!ok) throw new Error('[autoinf-attest] TDX quote failed cryptographic verification');
     })();
     this.quoteVerified = run;
     try {
