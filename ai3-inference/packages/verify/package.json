@@ -4,12 +4,23 @@
   "private": true,
   "description": "Isomorphic verification: response signatures, quote binding, DCAP seam, tier allowlist, fusion receipts (plan T5/T6)",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "files": [
+    "src",
     "dist"
   ],
   "scripts": {
     "build": "tsc -p ."
+  },
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "viem": "^2.51.3",
+    "@ai3-inference/core": "workspace:*"
   }
 }

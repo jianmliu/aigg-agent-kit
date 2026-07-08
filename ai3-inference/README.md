@@ -17,8 +17,8 @@ fusion: `2026-07-08-fusion-orchestration-design.md`.
 |---|---|
 | `contracts/` — ServiceRegistry + InferenceLedger (moved from aigg-src), deploy scripts, address book | **T2 done** — 7 hermetic specs, local deploy verified |
 | `packages/core` — provider/attestation types, tiers, digest reference + vectors | **T3 done** — 9 TS vector tests + Go companion test in aigg-src both green |
-| `packages/broker` — `autoPalBrokerFromRpc` (from kit npc-agent) | scaffold (T4) |
-| `packages/verify` — isomorphic verification, DCAP seam, tier allowlist | scaffold (T5/T6) |
+| `packages/broker` — `autoPalBrokerFromRpc` (moved from kit npc-agent) | **T4 done** — kit re-exports; npc-agent + gamekit smokes green |
+| `packages/verify` — attestation client (moved); DCAP + tier allowlist pending | **T4 moved** — isomorphic split + DCAP are T5/T6 |
 | `packages/voucher` — EIP-712 voucher client half | scaffold (T8) |
 | `conformance/` — hermetic harness + grading CLI | scaffold (T7/T9) |
 

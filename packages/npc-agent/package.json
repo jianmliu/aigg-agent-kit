@@ -28,7 +28,10 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
     "viem": "^2.51.3",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@ai3-inference/core": "workspace:*",
+    "@ai3-inference/verify": "workspace:*",
+    "@ai3-inference/broker": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.8.4",

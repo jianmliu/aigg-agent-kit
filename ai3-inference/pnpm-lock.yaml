@@ -36,7 +36,17 @@ importers:
         specifier: ^2.28.6
         version: 2.28.6(typescript@5.9.3)
 
-  packages/broker: {}
+  packages/broker:
+    dependencies:
+      '@ai3-inference/core':
+        specifier: workspace:*
+        version: link:../core
+      '@ai3-inference/verify':
+        specifier: workspace:*
+        version: link:../verify
+      viem:
+        specifier: ^2.51.3
+        version: 2.54.6(typescript@5.9.3)
 
   packages/core:
     dependencies:
@@ -48,7 +58,14 @@ importers:
         specifier: ^22.7.5
         version: 22.7.5
 
-  packages/verify: {}
+  packages/verify:
+    dependencies:
+      '@ai3-inference/core':
+        specifier: workspace:*
+        version: link:../core
+      viem:
+        specifier: ^2.51.3
+        version: 2.54.6(typescript@5.9.3)
 
   packages/voucher: {}
 
