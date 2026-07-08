@@ -1,0 +1,72 @@
+{
+  "_comment": [
+    "Cross-language digest vectors — CANONICAL COPY (ai3-inference/packages/core/vectors/).",
+    "digest = keccak256(requestHash || responseHash || utf8(model) || be64(inputTokens) || be64(outputTokens))",
+    "eip191 = keccak256(\"\\x19Ethereum Signed Message:\\n32\" || digest)",
+    "Token counts are decimal strings (uint64 range exceeds JS safe integers).",
+    "A byte-identical copy is asserted by the Go signer test in aigg-src backend/internal/service/attest/testdata/.",
+    "Changing this file is an algorithm change: update BOTH copies and both implementations deliberately."
+  ],
+  "vectors": [
+    {
+      "name": "ascii model, small counts",
+      "requestHash": "0x5521a70e306e4cf143fc3b54739d4053a40cc9765dbc2f1d2c86a2ea55e5dfe0",
+      "responseHash": "0xce2d8b7be00a3c46ba588a4e3b8d1e9805f9315d11a2fd7aec081ffdc986c4d7",
+      "model": "zai-org/GLM-5-FP8",
+      "inputTokens": "123",
+      "outputTokens": "456",
+      "digest": "0x276eb816cb72fb2ddca250c93253e881abcbf4c91223c1837071b2297f9cc76d",
+      "eip191": "0xc5a14778447ac49069b92247fd3941c3331df578624163ede93aee44b388e4d4"
+    },
+    {
+      "name": "unicode model (utf8 bytes)",
+      "requestHash": "0x35258e700dd4b075d79ca8d57993c2c3b049216202a8a1fcd8aa652fb4135b6d",
+      "responseHash": "0x270d0437613f183d00f9f4c56ab1288b468b230b5dc78d01fe28f76d8dc43d01",
+      "model": "模型/GLM-5-FP8 · 测试",
+      "inputTokens": "1",
+      "outputTokens": "2",
+      "digest": "0xae5dff3803a04099bc9b41bb75641c1e1c06f2e68b4a225c8a7849b69962dfbd",
+      "eip191": "0x90bc06d9f5f093b7b7e3bb01367500aaabf02576ff383a4077def34d5634c17f"
+    },
+    {
+      "name": "zero tokens",
+      "requestHash": "0x4d5e9b302d90241a4f2e45d6a342e619920267d6cfd5c5745e5a2b7478458f8d",
+      "responseHash": "0xf7a38ce2aacb978115403a1fbadc472f3b0870c482d476c4cf508ce71cae7c94",
+      "model": "fable-5",
+      "inputTokens": "0",
+      "outputTokens": "0",
+      "digest": "0x0f00f05ebe2827bca5bb6abd6438016b9f2f44f079d2393b21ab65fd7391da6d",
+      "eip191": "0x20729a03ec47d6000c5e4d7d375385c3826f4bed04ce11d876cf237ae530a1c1"
+    },
+    {
+      "name": "max uint64 tokens",
+      "requestHash": "0x559d5bf0ce82670238207f4ca0535bd5b7526950f28d3557812da30cfdae8e18",
+      "responseHash": "0xc64c9ccf097a6ef4873f475d1e54f73e96189cdf2ae31d0e9fa0343ebb9b64c4",
+      "model": "claude-opus-4-8",
+      "inputTokens": "18446744073709551615",
+      "outputTokens": "18446744073709551614",
+      "digest": "0x6b4d4efb854c207ee13442a603196c36c9d61baa74ba2f0eb36d26850f0c0cd0",
+      "eip191": "0x51320210b0201533956a4c6e52b41835eff4c497fa9552d1584a5f759a0ccb9a"
+    },
+    {
+      "name": "empty model string",
+      "requestHash": "0x3a1a16057866aa2e65d20d1ddad04829c874b0a6d8429238771c84b5b3677802",
+      "responseHash": "0xe685de2c17ac1b3cf9a4ab6717291776a7a1046a0a4a886d446ca35176387c18",
+      "model": "",
+      "inputTokens": "7",
+      "outputTokens": "9",
+      "digest": "0xe26e722a86c9d96af181f0e66ca658f337bec8b78d62006b2f267662b1a169e5",
+      "eip191": "0xd746635a069efa14470ea45f660ca20587fc5684a838fda5d5934ec5bbb3d712"
+    },
+    {
+      "name": "boundary: 2^53 (beyond JS safe integer)",
+      "requestHash": "0x0adf644df00725db5769f4be880a18c5592843cdb049ef3830125eebbb993fe6",
+      "responseHash": "0xa809d2dc8114bae3f774a48958b22e3356565309cc85a7edb17c2e1191d84a49",
+      "model": "gpt-5",
+      "inputTokens": "9007199254740993",
+      "outputTokens": "9007199254740992",
+      "digest": "0xb1c028e0407bf3daf209fb54e6b86f74031d3fb5805eea459d37d59a3daf7085",
+      "eip191": "0x3bcf2d42a56884bfe34722fc6aee7d29b5501cbf76907e8018225d04b6a5a5e2"
+    }
+  ]
+}

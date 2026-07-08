@@ -6,9 +6,18 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist",
+    "vectors"
+  ],
   "scripts": {
     "build": "tsc -p .",
-    "test": "node --test dist/"
+    "test": "node --test \"dist/**/*.test.js\""
+  },
+  "dependencies": {
+    "viem": "^2.54.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5"
   }
 }

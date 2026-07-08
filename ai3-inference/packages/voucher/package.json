@@ -6,9 +6,10 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "tsc -p .",
-    "test": "node --test dist/"
+    "build": "tsc -p ."
   }
 }

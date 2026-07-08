@@ -13,8 +13,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p .",
-    "test": "node --test dist/"
+    "build": "tsc -p ."
   },
   "devDependencies": {
     "@types/node": "^22.7.5"
