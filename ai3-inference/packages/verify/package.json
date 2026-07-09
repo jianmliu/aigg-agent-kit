@@ -8,10 +8,12 @@
   "types": "src/index.ts",
   "files": [
     "src",
-    "dist"
+    "dist",
+    "fixtures"
   ],
   "scripts": {
-    "build": "tsc -p ."
+    "build": "tsc -p .",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
   },
   "exports": {
     ".": {
@@ -22,5 +24,10 @@
   "dependencies": {
     "viem": "^2.51.3",
     "@ai3-inference/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@phala/dcap-qvl-node": "^0.3.3",
+    "@types/node": "^22.7.5",
+    "tsx": "^4.19.2"
   }
 }

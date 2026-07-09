@@ -39,6 +39,11 @@ import {
   type Address,
 } from 'viem';
 import { computeResponseDigest, type ResponseDigestFields } from '@ai3-inference/core';
+import {
+  assertTierAllowedForImage,
+  IMAGE_TIER_ALLOWLIST,
+  type ImageTierAllowlist,
+} from './image-tier-allowlist.js';
 
 // The digest reference implementation (and its cross-language vectors) lives in
 // @ai3-inference/core; re-exported here so existing consumers keep their import.
@@ -103,6 +108,25 @@ export async function recoverResponsePublicKey(att: ResponseAttestation): Promis
  *  (header 48 + TD report body 584, report_data = last 64 of the body). */
 export const TDX_REPORT_DATA_OFFSET = 568;
 
+/** Standard Intel TDX v4 quote: RTMR3 is the 48 bytes immediately before
+ *  report_data. dstack extends the app compose hash into RTMR3, so for a
+ *  dstack CVM this register is the image measurement that identifies exactly
+ *  which compose ran — the key of the imageHash→tier allowlist. */
+export const TDX_RTMR3_OFFSET = 520;
+
+/**
+ * extractImageMeasurement — the image measurement the tier allowlist is keyed
+ * by, as lowercase 0x-hex. Default: RTMR3 (dstack compose measurement).
+ * Override the offset (or the verifier's `imageMeasurementOf` seam) for
+ * non-dstack layouts.
+ */
+export function extractImageMeasurement(quote: Uint8Array, offset: number = TDX_RTMR3_OFFSET): string {
+  if (quote.length < offset + 48) {
+    throw new Error(`[autoinf-attest] quote too short for image measurement at offset ${offset} (len ${quote.length})`);
+  }
+  return bytesToHex(quote.slice(offset, offset + 48));
+}
+
 /**
  * extractReportData — the 64-byte report_data field from a raw TDX quote. dstack
  * zero-pads a shorter caller value to 64; the gateway sets it to
@@ -126,11 +150,16 @@ export function extractReportData(quote: Uint8Array, offset: number = TDX_REPORT
 export type QuoteVerifier = (quote: Uint8Array) => Promise<boolean>;
 
 /**
- * insecureAcceptAnyQuote — a QuoteVerifier that skips the hardware check. For
+ * UNSAFE_acceptAnyQuote — a QuoteVerifier that skips the hardware check. For
  * tests / bring-up ONLY. Using it in production reduces the guarantee to "some
  * key signed consistently", with NO hardware root — never ship with this.
+ * (Passing it is an explicit opt-out; it satisfies `requireVerified`'s
+ * constructor guard precisely because the caller had to type UNSAFE_.)
  */
-export const insecureAcceptAnyQuote: QuoteVerifier = async () => true;
+export const UNSAFE_acceptAnyQuote: QuoteVerifier = async () => true;
+
+/** @deprecated renamed 2026-07-09 (extraction plan T5) — use UNSAFE_acceptAnyQuote. */
+export const insecureAcceptAnyQuote: QuoteVerifier = UNSAFE_acceptAnyQuote;
 
 export interface AutoInfVerifierOptions {
   attestedSigner: Address;       // ServiceRegistry Service.attestedSigner
@@ -139,6 +168,17 @@ export interface AutoInfVerifierOptions {
   quoteVerifier: QuoteVerifier;
   /** report_data offset override for non-standard quote layouts. */
   reportDataOffset?: number;
+  /** the service's claimed registry `verifiability` label. When provided,
+   *  verifyQuoteOnce enforces the imageHash→tier allowlist (fusion spec §2.1):
+   *  a label above the image's ceiling — or any free-form label — fails
+   *  verification. Unknown images are capped at T1 (fail closed). */
+  verifiability?: string;
+  /** allowlist override (tests / out-of-band updates). Default: the data file
+   *  shipped with this library version. */
+  allowlist?: ImageTierAllowlist;
+  /** image-measurement extractor override for non-dstack quote layouts.
+   *  Default: RTMR3 (dstack compose measurement). */
+  imageMeasurementOf?: (quote: Uint8Array) => string;
 }
 
 /**
@@ -150,6 +190,9 @@ export class AutoInfAttestationVerifier {
   readonly attestationRef: Hex;
   private readonly quoteVerifier: QuoteVerifier;
   private readonly reportDataOffset: number;
+  private readonly verifiability?: string;
+  private readonly allowlist: ImageTierAllowlist;
+  private readonly imageMeasurementOf: (quote: Uint8Array) => string;
   private quoteVerified: Promise<void> | null = null;
 
   constructor(opts: AutoInfVerifierOptions) {
@@ -157,6 +200,9 @@ export class AutoInfAttestationVerifier {
     this.attestationRef = opts.attestationRef.toLowerCase() as Hex;
     this.quoteVerifier = opts.quoteVerifier;
     this.reportDataOffset = opts.reportDataOffset ?? TDX_REPORT_DATA_OFFSET;
+    this.verifiability = opts.verifiability;
+    this.allowlist = opts.allowlist ?? IMAGE_TIER_ALLOWLIST;
+    this.imageMeasurementOf = opts.imageMeasurementOf ?? ((q) => extractImageMeasurement(q));
   }
 
   /**
@@ -168,7 +214,9 @@ export class AutoInfAttestationVerifier {
    * Checks, in order:
    *   1. keccak256(quoteBlob) === attestationRef   (registry ref integrity)
    *   2. report_data(quote)[:32] === keccak256(pubkey)  (quote binds this signer)
-   *   3. quoteVerifier(quoteBlob)                   (TDX hardware validity)
+   *   3. claimed verifiability ≤ image allowlist ceiling  (when a label was
+   *      given — fusion spec §2.1; unknown images fail closed to T1)
+   *   4. quoteVerifier(quoteBlob)                   (TDX hardware validity)
    */
   async verifyQuoteOnce(quoteBlob: Uint8Array, signerPubkey: Uint8Array): Promise<void> {
     if (this.quoteVerified) return this.quoteVerified;
@@ -182,6 +230,9 @@ export class AutoInfAttestationVerifier {
       const bound = reportData.slice(0, 32);
       if (bytesToHex(bound) !== bytesToHex(expect)) {
         throw new Error('[autoinf-attest] quote report_data does not bind the response signer pubkey');
+      }
+      if (this.verifiability !== undefined) {
+        assertTierAllowedForImage(this.verifiability, this.imageMeasurementOf(quoteBlob), this.allowlist);
       }
       const ok = await this.quoteVerifier(quoteBlob);
       if (!ok) throw new Error('[autoinf-attest] TDX quote failed cryptographic verification');

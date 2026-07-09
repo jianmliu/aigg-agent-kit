@@ -62,9 +62,15 @@ export {
   recoverResponsePublicKey,
   extractReportData,
   parseAttestationHeaders,
-  insecureAcceptAnyQuote,
+  UNSAFE_acceptAnyQuote,
+  insecureAcceptAnyQuote, // deprecated alias (pre-T5 name)
+  extractImageMeasurement,
+  maxTierForImage,
+  assertTierAllowedForImage,
+  IMAGE_TIER_ALLOWLIST,
   ATTEST_HEADERS,
   TDX_REPORT_DATA_OFFSET,
+  TDX_RTMR3_OFFSET,
 } from './inference/autopal-attestation';
 export type {
   ResponseDigestFields,
@@ -74,6 +80,8 @@ export type {
   AutoInfVerifierOptions,
   AutopalVerifierOptions, // deprecated alias
   HeaderLike,
+  ImageTierAllowlist,
+  ImageTierAllowlistEntry,
 } from './inference/autopal-attestation';
 export {
   AutoInfBrokerProvider,

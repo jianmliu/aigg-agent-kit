@@ -14,9 +14,16 @@ export {
   recoverResponsePublicKey,
   extractReportData,
   parseAttestationHeaders,
-  insecureAcceptAnyQuote,
+  UNSAFE_acceptAnyQuote,
+  insecureAcceptAnyQuote, // deprecated alias (pre-T5 name)
+  extractImageMeasurement,
+  maxTierForImage,
+  assertTierAllowedForImage,
+  IMAGE_TIER_ALLOWLIST,
+  IMAGE_TIER_ALLOWLIST_VERSION,
   ATTEST_HEADERS,
   TDX_REPORT_DATA_OFFSET,
+  TDX_RTMR3_OFFSET,
   // deprecated alias (pre-rename API)
   AutoInfAttestationVerifier as AutopalAttestationVerifier,
 } from '@ai3-inference/verify';
@@ -27,6 +34,8 @@ export type {
   QuoteVerifier,
   AutoInfVerifierOptions,
   HeaderLike,
+  ImageTierAllowlist,
+  ImageTierAllowlistEntry,
   // deprecated alias (pre-rename API)
   AutoInfVerifierOptions as AutopalVerifierOptions,
 } from '@ai3-inference/verify';

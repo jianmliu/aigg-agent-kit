@@ -22,15 +22,16 @@ fusion: `2026-07-08-fusion-orchestration-design.md`.
 |---|---|
 | `contracts/` — ServiceRegistry + InferenceLedger (moved from aigg-src), deploy scripts, address book | **T2 done** — 7 hermetic specs, local deploy verified |
 | `packages/core` — provider/attestation types, tiers, digest reference + vectors | **T3 done** — 9 TS vector tests + Go companion test in aigg-src both green |
-| `packages/broker` — `autoPalBrokerFromRpc` (moved from kit npc-agent) | **T4 done** — kit re-exports; npc-agent + gamekit smokes green |
-| `packages/verify` — attestation client (moved); DCAP + tier allowlist pending | **T4 moved** — isomorphic split + DCAP are T5/T6 |
+| `packages/broker` — `autoInfBrokerFromRpc` (moved from kit npc-agent) | **T4 done** — kit re-exports; npc-agent + gamekit smokes green; `requireVerified` hard-fails without a quote verifier (T5) |
+| `packages/verify` — attestation client, tamper matrix, imageHash→tier allowlist, DCAP verifiers | **T5+T6 done** — browser-safe (guard-tested); `UNSAFE_acceptAnyQuote` rename; allowlist enforced in `verifyQuoteOnce` (unknown images fail closed to T1); DCAP behind the `QuoteVerifier` seam: dcap-qvl wasm (preferred, isomorphic) + `httpQuoteVerifier` fallback (Go service in aigg-src), real known-good/bad TDX quote fixtures |
 | `packages/voucher` — EIP-712 voucher client half | scaffold (T8) |
 | `conformance/` — hermetic harness + grading CLI | scaffold (T7/T9) |
 
 ```bash
 pnpm install
 pnpm -r build                                  # T1 gate
-pnpm --filter @ai3-inference/contracts test    # T2 gate: 7 specs
+pnpm -r test                                   # core vectors + verify tamper/allowlist/DCAP + broker + 7 contract specs
+pnpm --filter @ai3-inference/contracts test    # T2 gate only: 7 specs
 # local deploy check (second terminal: pnpm --filter @ai3-inference/contracts node)
 pnpm --filter @ai3-inference/contracts deploy:local
 ```

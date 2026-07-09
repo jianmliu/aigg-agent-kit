@@ -25,7 +25,7 @@ import {
   AutoInfAttestationVerifier,
   recoverResponsePublicKey,
   parseAttestationHeaders,
-  insecureAcceptAnyQuote,
+  UNSAFE_acceptAnyQuote,
   type QuoteVerifier,
   type ResponseAttestation,
 } from '@ai3-inference/verify';
@@ -56,8 +56,10 @@ export interface QuoteFetcher {
 export interface AutoInfBrokerProviderOptions {
   registry: RegistryReader;
   quotes: QuoteFetcher;
-  /** TDX/DCAP quote verifier. Defaults to insecureAcceptAnyQuote WITH a warning
-   *  — a production deployment MUST pass a real one. */
+  /** TDX/DCAP quote verifier. When omitted: degrades to UNSAFE_acceptAnyQuote
+   *  WITH a warning — unless requireVerified is set, in which case omitting it
+   *  is a hard construction error. A production deployment MUST pass a real
+   *  one (see @ai3-inference/verify's DCAP adapters). */
   quoteVerifier?: QuoteVerifier;
   /** preferred model; if unset, the request has none, or several match, the
    *  cheapest active service (by input price) wins. */
@@ -69,7 +71,9 @@ export interface AutoInfBrokerProviderOptions {
   maxTokens?: number;
   /** when true, complete() THROWS if a response can't be verified (no signer
    *  match, missing attestation, quote failure). Default false: degrade to an
-   *  unsigned attestation, same as the 0G path when a verdict is unavailable. */
+   *  unsigned attestation, same as the 0G path when a verdict is unavailable.
+   *  Requires an explicit quoteVerifier: promising "verified" with no quote
+   *  verifier is a contradiction and fails at construction (plan T5). */
   requireVerified?: boolean;
   /** neuron→AI3 scale for reporting cost (default 1e18). */
   weiPerAI3?: number;
@@ -97,12 +101,18 @@ export class AutoInfBrokerProvider implements InferenceProvider {
     this.registry = opts.registry;
     this.quotes = opts.quotes;
     if (!opts.quoteVerifier) {
+      if (opts.requireVerified) {
+        throw new Error(
+          '[AutoInfBrokerProvider] requireVerified:true needs a quoteVerifier — ' +
+            'provide a DCAP verifier (or explicitly opt out with UNSAFE_acceptAnyQuote)',
+        );
+      }
       console.warn(
-        '[AutoInfBrokerProvider] no quoteVerifier — using insecureAcceptAnyQuote; ' +
+        '[AutoInfBrokerProvider] no quoteVerifier — using UNSAFE_acceptAnyQuote; ' +
           'the TDX hardware root is NOT checked. Provide a DCAP verifier in production.',
       );
     }
-    this.quoteVerifier = opts.quoteVerifier ?? insecureAcceptAnyQuote;
+    this.quoteVerifier = opts.quoteVerifier ?? UNSAFE_acceptAnyQuote;
     const f = opts.fetchImpl ?? (typeof fetch === 'function' ? fetch : undefined);
     if (!f) throw new Error('[AutoInfBrokerProvider] no fetch implementation available');
     this.fetchImpl = f;
@@ -143,6 +153,9 @@ export class AutoInfBrokerProvider implements InferenceProvider {
       attestedSigner: svc.attestedSigner,
       attestationRef: svc.attestationRef,
       quoteVerifier: this.quoteVerifier,
+      // the registry's claimed label is re-checked against the imageHash→tier
+      // allowlist inside verifyQuoteOnce — a lying label fails verification.
+      verifiability: svc.verifiability,
     });
     this.chosen = { svc, verifier };
     return this.chosen;
