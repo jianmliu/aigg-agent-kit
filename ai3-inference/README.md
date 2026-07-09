@@ -25,12 +25,14 @@ fusion: `2026-07-08-fusion-orchestration-design.md`.
 | `packages/broker` — `autoInfBrokerFromRpc` (moved from kit npc-agent) | **T4 done** — kit re-exports; npc-agent + gamekit smokes green; `requireVerified` hard-fails without a quote verifier (T5) |
 | `packages/verify` — attestation client, tamper matrix, imageHash→tier allowlist, DCAP verifiers | **T5+T6 done** — browser-safe (guard-tested); `UNSAFE_acceptAnyQuote` rename; allowlist enforced in `verifyQuoteOnce` (unknown images fail closed to T1); DCAP behind the `QuoteVerifier` seam: dcap-qvl wasm (preferred, isomorphic) + `httpQuoteVerifier` fallback (Go service in aigg-src), real known-good/bad TDX quote fixtures |
 | `packages/voucher` — EIP-712 voucher client half | scaffold (T8) |
-| `conformance/` — hermetic harness + grading CLI | scaffold (T7/T9) |
+| `conformance/` — hermetic harness + grading CLI | **T7 done = V1** — local chain → legacy-tx deploy → fake-dsn → mock-dstack quote → stub-gateway (headers + SSE/trailers) → full matrix green incl. tamper cases + dcap column; `ai3-conformance --hermetic` or `--rpc/--registry/--dsn/--endpoint` for live pairs (T9 adds the Phase-B voucher group) |
 
 ```bash
 pnpm install
 pnpm -r build                                  # T1 gate
 pnpm -r test                                   # core vectors + verify tamper/allowlist/DCAP + broker + 7 contract specs
+                                               # + the hermetic conformance matrix (milestone V1 gate)
+pnpm --filter @ai3-inference/conformance hermetic   # the same matrix, as the CLI
 pnpm --filter @ai3-inference/contracts test    # T2 gate only: 7 specs
 # local deploy check (second terminal: pnpm --filter @ai3-inference/contracts node)
 pnpm --filter @ai3-inference/contracts deploy:local

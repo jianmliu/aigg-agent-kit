@@ -13,10 +13,29 @@ importers:
         version: 5.9.3
 
   conformance:
+    dependencies:
+      '@ai3-inference/broker':
+        specifier: workspace:*
+        version: link:../packages/broker
+      '@ai3-inference/core':
+        specifier: workspace:*
+        version: link:../packages/core
+      '@ai3-inference/verify':
+        specifier: workspace:*
+        version: link:../packages/verify
+      '@phala/dcap-qvl-node':
+        specifier: ^0.3.3
+        version: 0.3.3
+      viem:
+        specifier: ^2.51.3
+        version: 2.54.6(typescript@5.9.3)
     devDependencies:
       '@types/node':
         specifier: ^22.7.5
         version: 22.7.5
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.0
 
   contracts:
     devDependencies:
