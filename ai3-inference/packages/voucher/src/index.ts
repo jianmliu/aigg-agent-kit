@@ -12,3 +12,4 @@ export const AI3_VOUCHER_VERSION = '0.0.1';
 export * from './voucher.js';
 export * from './signature.js';
 export * from './nonce.js';
+export * from './header.js';

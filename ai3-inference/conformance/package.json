@@ -29,7 +29,8 @@
     "@ai3-inference/core": "workspace:*",
     "@ai3-inference/verify": "workspace:*",
     "@ai3-inference/broker": "workspace:*",
-    "@phala/dcap-qvl-node": "^0.3.3"
+    "@phala/dcap-qvl-node": "^0.3.3",
+    "@ai3-inference/voucher": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",

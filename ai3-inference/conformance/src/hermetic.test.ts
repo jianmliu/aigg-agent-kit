@@ -20,13 +20,14 @@ test('hermetic conformance matrix is fully green (milestone V1)', { timeout: 300
     assert.ok(g.ok, `group ${g.group} failed:\n${rendered}`);
     if (!g.skipped) assert.ok(g.checks.length > 0, `group ${g.group} ran no checks`);
   }
-  // the hermetic stack provides a funded lifecycle key and a dcap fixture —
-  // NO group may be skipped here (a live read-only run may skip lifecycle).
+  // the hermetic stack provides a funded lifecycle key, a dcap fixture, and
+  // the Phase-B ledger config — NO group may be skipped here (a live
+  // read-only run may skip lifecycle/voucher-settlement).
   assert.deepEqual(result.groups.filter((g) => g.skipped).map((g) => g.group), []);
   assert.equal(result.ok, true);
-  // every invariant group from the plan is present.
+  // every invariant group from the plan (T7 + the T9 Phase-B group) is present.
   assert.deepEqual(
     result.groups.map((g) => g.group).sort(),
-    ['cost-nonzero', 'dcap', 'quote-binding', 'registry-lifecycle', 'response-signature', 'streaming-trailer', 'tier-label-guard'],
+    ['cost-nonzero', 'dcap', 'quote-binding', 'registry-lifecycle', 'response-signature', 'streaming-trailer', 'tier-label-guard', 'voucher-settlement'],
   );
 });

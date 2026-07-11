@@ -23,6 +23,9 @@ importers:
       '@ai3-inference/verify':
         specifier: workspace:*
         version: link:../packages/verify
+      '@ai3-inference/voucher':
+        specifier: workspace:*
+        version: link:../packages/voucher
       '@phala/dcap-qvl-node':
         specifier: ^0.3.3
         version: 0.3.3

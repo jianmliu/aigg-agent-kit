@@ -9,7 +9,9 @@
  *   # grade a live pair
  *   ai3-conformance --rpc <url> --registry <0x…> --dsn <url> \
  *       [--endpoint <url>] [--provider <0x…>] [--model <id>] \
- *       [--lifecycle-key <0x…>] [--dcap fixture|off] [--unsafe-quotes]
+ *       [--lifecycle-key <0x…>] [--dcap fixture|off] [--unsafe-quotes] \
+ *       [--ledger <0x…> --ledger-endpoint <url> --ledger-provider <0x…> \
+ *        --user-key <0x…> [--settle-key <0x…>] [--time-travel]]   # Phase-B group (T9)
  *
  * Exit codes: 0 = matrix green, 1 = failures, 2 = usage error.
  *
@@ -38,6 +40,12 @@ const { values } = parseArgs({
     dcap: { type: 'string', default: 'fixture' },
     'unsafe-quotes': { type: 'boolean', default: false },
     pccs: { type: 'string' },
+    ledger: { type: 'string' },
+    'ledger-endpoint': { type: 'string' },
+    'ledger-provider': { type: 'string' },
+    'user-key': { type: 'string' },
+    'settle-key': { type: 'string' },
+    'time-travel': { type: 'boolean', default: false },
   },
 });
 
@@ -76,6 +84,18 @@ async function main(): Promise<number> {
     lifecycleKey: values['lifecycle-key'] as Hex | undefined,
     quoteVerifier,
     dcap: values.dcap === 'off' ? 'off' : 'fixture',
+    ...(values.ledger && values['ledger-endpoint'] && values['ledger-provider'] && values['user-key']
+      ? {
+          ledger: {
+            address: values.ledger,
+            endpoint: values['ledger-endpoint'],
+            providerAddress: values['ledger-provider'],
+            userKey: values['user-key'] as Hex,
+            providerKey: values['settle-key'] as Hex | undefined,
+            timeTravel: values['time-travel'],
+          },
+        }
+      : {}),
   };
   const result = await runMatrix(cfg);
   console.log(renderMatrix(result));

@@ -13,6 +13,12 @@
  *                        streamed bytes; a flipped byte fails
  *   tier-label-guard     listed verifiability is within the image allowlist
  *                        ceiling; lying/free-form labels fail (fusion §2.1)
+ *   voucher-settlement   Phase B (plan T9): deposit → transferTo → 402 gate →
+ *                        paid calls batch-settle on-chain → replay / expired
+ *                        rejected at the gate; fee>maxFee / nonce replay /
+ *                        expiry rejected by the CONTRACT; refund-window
+ *                        semantics (settleable during, min(requested,
+ *                        remaining) after)     [needs the ledger config]
  *   dcap                 the real DCAP verifier passes the known-good fixture
  *                        quote and rejects a tampered one (T6 column)
  *
@@ -43,8 +49,10 @@ import {
   type HeaderLike,
   type DcapCollateral,
 } from '@ai3-inference/verify';
+import { signVoucher, encodeVoucher, VOUCHER_HEADERS, type Voucher } from '@ai3-inference/voucher';
 import { chainFor } from './harness/deploy.js';
 import { RegistryWriter } from './harness/registry.js';
+import { LedgerClient, increaseChainTime } from './harness/ledger.js';
 import { makeSyntheticQuote, realFixtureQuote, realFixtureCollateral, REAL_FIXTURE_NOW } from './harness/mock-dstack.js';
 
 export interface ConformanceConfig {
@@ -64,6 +72,22 @@ export interface ConformanceConfig {
   /** dcap column mode; default 'fixture'. */
   dcap?: 'fixture' | 'off';
   model?: string;
+  /** Phase-B group config (plan T9); omitted → group skipped. */
+  ledger?: {
+    /** InferenceLedger contract. */
+    address: string;
+    /** the voucher-gated gateway endpoint to grade. */
+    endpoint: string;
+    /** the voucher-gated service's provider EOA (vouchers name it). */
+    providerAddress: string;
+    /** funded payer key — deposits, escrows, and signs vouchers. */
+    userKey: Hex;
+    /** the provider's key — enables the direct on-chain rejection checks
+     *  (fee>maxFee / replay / expiry) and the during-window settle. */
+    providerKey?: Hex;
+    /** dev chain only: fast-forward the 24h refund window. */
+    timeTravel?: boolean;
+  };
 }
 
 export interface CheckResult {
@@ -383,6 +407,161 @@ async function tierLabelGuard(_cfg: ConformanceConfig, r: Resolved): Promise<Gro
   return g.result('tier-label-guard');
 }
 
+async function voucherSettlement(cfg: ConformanceConfig): Promise<GroupResult> {
+  const g = new Group();
+  const lc = cfg.ledger;
+  if (!lc) return g.result('voucher-settlement', 'no ledger config (Phase-A run)');
+
+  const chain = await chainFor(cfg.rpcUrl);
+  const user = new LedgerClient(cfg.rpcUrl, chain, lc.address, lc.userKey);
+  const providerAddr = getAddress(lc.providerAddress);
+  const domain = { chainId: BigInt(chain.id), verifyingContract: getAddress(lc.address) };
+  const userAccount = privateKeyToAccount(lc.userKey);
+
+  // the graded listing — metering must match its advertised prices.
+  const reader = new ViemRegistryReader(cfg.rpcUrl, cfg.registryAddress);
+  const listing = (await reader.list()).find((s) => getAddress(s.provider) === providerAddr && s.active);
+  assert(listing, `voucher provider ${providerAddr} not listed/active`);
+
+  const chainNow = await user.chainNow();
+  const maxFee = 10n ** 15n; // comfortably above the gate's pre-flight estimate
+  const mkVoucher = (nonce: bigint, over: Partial<Voucher> = {}): Voucher => ({
+    user: userAccount.address,
+    provider: providerAddr,
+    nonce,
+    maxFee,
+    expiry: chainNow + 7n * 24n * 3600n, // survives the refund-window time travel
+    ...over,
+  });
+  const sign = (v: Voucher) => signVoucher(userAccount, v, domain);
+
+  const call = async (voucher?: Voucher, signature?: Hex) => {
+    const body = JSON.stringify({
+      model: listing!.models[0] ?? '',
+      messages: [{ role: 'user', content: 'conformance: paid call' }],
+    });
+    const res = await fetch(`${lc.endpoint}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(voucher ? { [VOUCHER_HEADERS.voucher]: encodeVoucher(voucher) } : {}),
+        ...(signature ? { [VOUCHER_HEADERS.signature]: signature } : {}),
+      },
+      body,
+    });
+    const text = await res.text();
+    return { status: res.status, text, json: (() => { try { return JSON.parse(text); } catch { return null; } })(), reqBody: body };
+  };
+
+  // 1. fund the escrow: deposit → transferTo
+  const escrow = 4n * 10n ** 17n; // 0.4 AI3
+  await g.check('deposit → transferTo funds the (user,provider) sub-account', async () => {
+    await user.deposit(5n * 10n ** 17n);
+    await user.transferTo(providerAddr, escrow);
+    assert((await user.balanceOf(userAccount.address, providerAddr)) === escrow, 'escrow balance mismatch');
+  });
+
+  // 2. the 402 gate
+  await g.check('no voucher → HTTP 402', async () => {
+    const r = await call();
+    assert(r.status === 402, `got ${r.status}`);
+    assert(/voucher/i.test(r.json?.error ?? ''), `error: ${r.text}`);
+  });
+  await g.check('maxFee below the estimate → 402 with estimateWei', async () => {
+    const v = mkVoucher(1000n, { maxFee: 1000n });
+    const r = await call(v, await sign(v));
+    assert(r.status === 402, `got ${r.status}`);
+    assert(typeof r.json?.estimateWei === 'string' && BigInt(r.json.estimateWei) > 1000n, `body: ${r.text}`);
+  });
+
+  // 3. two paid calls → one on-chain settle batch
+  const v0 = mkVoucher(0n);
+  const v1 = mkVoucher(1n);
+  const sig0 = await sign(v0);
+  let feeTotal = 0n;
+  await g.check('paid calls succeed and batch-settle on-chain (funds move, nonces burn)', async () => {
+    const balBefore = await user.balanceOf(userAccount.address, providerAddr);
+    const accruedBefore = await user.accrued(providerAddr);
+    for (const [v, s] of [[v0, sig0], [v1, await sign(v1)]] as Array<[Voucher, Hex]>) {
+      const r = await call(v, s);
+      assert(r.status === 200, `paid call got ${r.status}: ${r.text}`);
+      const usage = r.json?.usage;
+      assert(usage?.prompt_tokens > 0 && usage?.completion_tokens > 0, 'no usage in response');
+      feeTotal += BigInt(usage.prompt_tokens) * listing!.inputPriceWei + BigInt(usage.completion_tokens) * listing!.outputPriceWei;
+    }
+    assert(feeTotal > 0n && feeTotal <= 2n * maxFee, `metered total ${feeTotal}`);
+    assert((await user.balanceOf(userAccount.address, providerAddr)) === balBefore - feeTotal, 'escrow did not decrease by the metered fees');
+    assert((await user.accrued(providerAddr)) === accruedBefore + feeTotal, 'provider accrual mismatch');
+    assert(await user.nonceUsed(userAccount.address, providerAddr, 0n), 'nonce 0 not burned');
+    assert(await user.nonceUsed(userAccount.address, providerAddr, 1n), 'nonce 1 not burned');
+  });
+
+  // 4. gate-level rejections after settlement
+  await g.check('replayed nonce → 402', async () => {
+    const r = await call(v0, sig0);
+    assert(r.status === 402 && /nonce/i.test(r.json?.error ?? ''), `got ${r.status}: ${r.text}`);
+  });
+  await g.check('expired voucher → 402', async () => {
+    const v = mkVoucher(2n, { expiry: chainNow - 10n });
+    const r = await call(v, await sign(v));
+    assert(r.status === 402 && /expir/i.test(r.json?.error ?? ''), `got ${r.status}: ${r.text}`);
+  });
+
+  // 5. contract-level rejections (the ledger is the last line of defense)
+  if (lc.providerKey) {
+    const provider = new LedgerClient(cfg.rpcUrl, chain, lc.address, lc.providerKey);
+    await g.expectThrow('contract: fee > maxFee → FeeAboveMax', async () => {
+      const v = mkVoucher(5n);
+      await provider.settle([{ voucher: v, signature: await sign(v), fee: maxFee + 1n }]);
+    }, /FeeAboveMax/);
+    await g.expectThrow('contract: settled nonce replay → NonceUsed', async () => {
+      await provider.settle([{ voucher: v0, signature: sig0, fee: 1n }]);
+    }, /NonceUsed/);
+    await g.expectThrow('contract: expired voucher → VoucherExpired', async () => {
+      const v = mkVoucher(6n, { expiry: chainNow - 10n });
+      await provider.settle([{ voucher: v, signature: await sign(v), fee: 1n }]);
+    }, /VoucherExpired/);
+
+    // 6. refund-window semantics
+    await g.check('refund: locked during the window, still settleable, pays min(requested, remaining) after', async () => {
+      const remaining = await user.balanceOf(userAccount.address, providerAddr);
+      assert(remaining > 0n, 'nothing left to refund');
+      await user.requestRefund(providerAddr, remaining);
+      // locked: immediate withdraw reverts
+      await assertRejects(() => user.withdrawRefund(providerAddr), /RefundLocked/);
+      // still settleable during the window — provider protection
+      const v9 = mkVoucher(9n);
+      const duringFee = 10n ** 12n;
+      await provider.settle([{ voucher: v9, signature: await sign(v9), fee: duringFee }]);
+      if (lc.timeTravel) {
+        const unlock = await user.refundUnlock();
+        await increaseChainTime(cfg.rpcUrl, unlock + 5n);
+        const walletBefore = await user.walletBalance();
+        const { gasCostWei } = await user.withdrawRefund(providerAddr);
+        const paid = remaining - duringFee; // min(requested, remaining after the settle)
+        assert(
+          (await user.walletBalance()) === walletBefore + paid - gasCostWei,
+          'refund payout != min(requested, remaining) − gas',
+        );
+        assert((await user.balanceOf(userAccount.address, providerAddr)) === 0n, 'escrow not emptied');
+      }
+    });
+  }
+
+  return g.result('voucher-settlement');
+}
+
+async function assertRejects(fn: () => Promise<unknown>, match: RegExp): Promise<void> {
+  try {
+    await fn();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!match.test(msg)) throw new Error(`rejected, but not with ${match}: ${msg}`);
+    return;
+  }
+  throw new Error(`expected rejection ${match}, but it passed`);
+}
+
 async function dcapColumn(cfg: ConformanceConfig): Promise<GroupResult> {
   const g = new Group();
   if (cfg.dcap === 'off') return g.result('dcap', 'disabled (--dcap off)');
@@ -415,6 +594,7 @@ export async function runMatrix(cfg: ConformanceConfig): Promise<MatrixResult> {
   groups.push(await costNonzero(cfg, r));
   groups.push(await streamingTrailer(cfg, r));
   groups.push(await tierLabelGuard(cfg, r));
+  groups.push(await voucherSettlement(cfg)); // Phase B (T9)
   groups.push(await dcapColumn(cfg));
   groups.push(await registryLifecycle(cfg)); // last: it adds/removes a listing
   return { ok: groups.every((g) => g.ok), groups };

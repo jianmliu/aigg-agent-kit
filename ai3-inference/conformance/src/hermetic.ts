@@ -24,6 +24,14 @@ import { runMatrix, type ConformanceConfig, type MatrixResult } from './matrix.j
 
 /** the stub gateway's enclave signing key (dev account #3 of the test mnemonic). */
 export const HERMETIC_ENCLAVE_KEY: Hex = '0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6';
+/** the voucher-gated gateway's enclave key (dev account #5) — a second service,
+ *  so the Phase-A groups keep grading the ungated listing. */
+export const HERMETIC_VOUCHER_ENCLAVE_KEY: Hex = '0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba';
+
+/** Phase-B listing prices (wei-of-AI3 per token) — shared by the registry
+ *  entry and the gateway's metering so conformance can cross-check fees. */
+const VOUCHER_INPUT_PRICE = 10n ** 12n;
+const VOUCHER_OUTPUT_PRICE = 2n * 10n ** 12n;
 
 export interface HermeticStack {
   chain: LocalChain;
@@ -63,6 +71,37 @@ export async function startHermeticStack(): Promise<HermeticStack> {
       deployment.bondWei,
     );
 
+    // ── Phase B (T9): a second, voucher-gated service ────────────────────────
+    const voucherGateway = await startStubGateway({
+      enclaveKey: HERMETIC_VOUCHER_ENCLAVE_KEY,
+      voucherGate: {
+        rpcUrl: chain.rpcUrl,
+        chain: deployment.chain,
+        ledgerAddress: deployment.inferenceLedger,
+        providerKey: DEV_KEYS.voucherProvider as Hex,
+        inputPriceWei: VOUCHER_INPUT_PRICE,
+        outputPriceWei: VOUCHER_OUTPUT_PRICE,
+        settleEvery: 2, // two paid calls → ONE settle tx: proves batching
+      },
+    });
+    teardown.push(() => voucherGateway.stop());
+    const voucherQuote = makeSyntheticQuote({ signerPubkey: voucherGateway.enclavePubkey, seed: 21 });
+    const voucherProvider = new RegistryWriter(
+      chain.rpcUrl, deployment.chain, deployment.serviceRegistry, DEV_KEYS.voucherProvider as Hex,
+    );
+    await voucherProvider.register(
+      {
+        endpoint: voucherGateway.endpoint,
+        models: ['conformance-paid-model'],
+        inputPriceWei: VOUCHER_INPUT_PRICE,
+        outputPriceWei: VOUCHER_OUTPUT_PRICE,
+        attestationRef: dsn.put(voucherQuote),
+        attestedSigner: voucherGateway.enclaveAddress,
+        verifiability: 'dstack-cvm-relay',
+      },
+      deployment.bondWei,
+    );
+
     const config: ConformanceConfig = {
       rpcUrl: chain.rpcUrl,
       registryAddress: deployment.serviceRegistry,
@@ -71,6 +110,14 @@ export async function startHermeticStack(): Promise<HermeticStack> {
       lifecycleKey: DEV_KEYS.provider2 as Hex,
       quoteVerifier: UNSAFE_acceptAnyQuote,
       model: 'conformance-model',
+      ledger: {
+        address: deployment.inferenceLedger,
+        endpoint: voucherGateway.endpoint,
+        providerAddress: voucherProvider.providerAddress,
+        userKey: DEV_KEYS.user as Hex,
+        providerKey: DEV_KEYS.voucherProvider as Hex,
+        timeTravel: true,
+      },
     };
     return {
       chain,

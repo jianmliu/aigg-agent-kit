@@ -19,6 +19,10 @@ export const DEV_KEYS = {
   provider: '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d',
   /** account #2 — a second provider for negative/lifecycle cases */
   provider2: '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a',
+  /** account #4 — the voucher-gated (Phase B) provider EOA */
+  voucherProvider: '0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a',
+  /** account #6 — the paying user of the Phase-B group */
+  user: '0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e',
 } as const;
 
 export interface LocalChain {
