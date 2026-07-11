@@ -1,0 +1,16 @@
+# Forge profile for the same sources (tests currently live in the hardhat harness —
+# `npm i && npm test`; forge-native .t.sol ports are a welcome follow-up).
+[profile.default]
+src = "src"
+test = "test-forge"
+out = "out"
+libs = ["lib"]
+solc = "0.8.24"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+
+# Auto EVM (Autonomys) — same endpoints the mud-demo contracts deploy against.
+[rpc_endpoints]
+auto_evm_mainnet = "https://auto-evm.mainnet.autonomys.xyz/ws"  # chainId 870, AI3
+auto_evm = "https://auto-evm.chronos.autonomys.xyz/ws"          # chainId 8700, tAI3 (Chronos testnet)

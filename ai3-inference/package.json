@@ -1,0 +1,14 @@
+{
+  "name": "ai3-inference",
+  "private": true,
+  "description": "Discover, call, verify, and settle inference on the AI3 stack (Auto EVM + DSN) — contracts, consumer broker, isomorphic verification, voucher signing, conformance CLI.",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "test:contracts": "pnpm --filter @ai3-inference/contracts test"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

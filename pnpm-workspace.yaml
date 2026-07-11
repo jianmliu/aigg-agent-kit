@@ -4,3 +4,6 @@
 packages:
   - "packages/*"
   - "proxy"
+  # interim home of the ai3-inference library (extraction plan 2026-07-08);
+  # hosts consuming the kit as a submodule add kit/ai3-inference/packages/*
+  - "ai3-inference/packages/*"

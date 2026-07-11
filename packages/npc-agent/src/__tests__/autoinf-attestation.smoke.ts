@@ -1,5 +1,5 @@
 /**
- * autopal-attestation smoke — the CLIENT verify path against a REAL vector
+ * autoinf-attestation smoke — the CLIENT verify path against a REAL vector
  * produced by the Go gateway signer (aigg-src attest.ResponseSigner), proving
  * byte-for-byte cross-language parity of the digest + EIP-191 signature scheme.
  *
@@ -7,7 +7,7 @@
  * model "claude-opus-4-8", tokens 1234/567):
  *   go test ./internal/service/attest -run TestPrintVector
  *
- * Run: tsx src/__tests__/autopal-attestation.smoke.ts
+ * Run: tsx src/__tests__/autoinf-attestation.smoke.ts
  */
 import assert from 'node:assert/strict';
 import { keccak256, bytesToHex, type Hex, type Address } from 'viem';
@@ -16,7 +16,7 @@ import {
   verifyResponseSignature,
   recoverResponsePublicKey,
   extractReportData,
-  AutopalAttestationVerifier,
+  AutoInfAttestationVerifier,
   insecureAcceptAnyQuote,
   parseAttestationHeaders,
   ATTEST_HEADERS,
@@ -95,7 +95,7 @@ async function main() {
   const rd = extractReportData(quote);
   assert.equal(bytesToHex(rd.slice(0, 32)), reportData32, 'extracted report_data binds pubkey');
 
-  const verifier = new AutopalAttestationVerifier({
+  const verifier = new AutoInfAttestationVerifier({
     attestedSigner: V.signer,
     attestationRef,
     quoteVerifier: insecureAcceptAnyQuote,
@@ -108,7 +108,7 @@ async function main() {
 
   // 7. quote-binding failures: wrong ref, wrong pubkey, failing DCAP.
   await assertRejects(() =>
-    new AutopalAttestationVerifier({
+    new AutoInfAttestationVerifier({
       attestedSigner: V.signer,
       attestationRef: ('0x' + '11'.repeat(32)) as Hex,
       quoteVerifier: insecureAcceptAnyQuote,
@@ -116,7 +116,7 @@ async function main() {
     'wrong attestationRef',
   );
   await assertRejects(() =>
-    new AutopalAttestationVerifier({
+    new AutoInfAttestationVerifier({
       attestedSigner: V.signer,
       attestationRef,
       quoteVerifier: insecureAcceptAnyQuote,
@@ -124,7 +124,7 @@ async function main() {
     'pubkey not bound by report_data',
   );
   await assertRejects(() =>
-    new AutopalAttestationVerifier({
+    new AutoInfAttestationVerifier({
       attestedSigner: V.signer,
       attestationRef,
       quoteVerifier: async () => false, // DCAP rejects
@@ -150,7 +150,7 @@ async function main() {
   const none = parseAttestationHeaders({ get: () => null }, V.requestHash, V.responseHash);
   assert.equal(none, null, 'no signature header → null');
 
-  console.log('autopal-attestation smoke: OK (9 groups, real Go vector parity)');
+  console.log('autoinf-attestation smoke: OK (9 groups, real Go vector parity)');
 }
 
 function hexToU8(h: Hex): Uint8Array {

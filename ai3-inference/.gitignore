@@ -1,0 +1,6 @@
+node_modules/
+dist/
+contracts/cache-hh/
+contracts/artifacts/
+contracts/out/
+*.tsbuildinfo
