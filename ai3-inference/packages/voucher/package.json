@@ -11,12 +11,20 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p ."
+    "build": "tsc -p .",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
   },
   "exports": {
     ".": {
       "import": "./src/index.ts",
       "types": "./src/index.ts"
     }
+  },
+  "dependencies": {
+    "viem": "^2.51.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "tsx": "^4.19.2"
   }
 }

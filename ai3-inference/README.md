@@ -20,11 +20,11 @@ fusion: `2026-07-08-fusion-orchestration-design.md`.
 
 | Piece | Status |
 |---|---|
-| `contracts/` — ServiceRegistry + InferenceLedger (moved from aigg-src), deploy scripts, address book | **T2 done** — 7 hermetic specs, local deploy verified |
+| `contracts/` — ServiceRegistry + InferenceLedger (moved from aigg-src), deploy scripts, address book | **T2 done** — 7 hermetic specs + the T8 voucher round-trip spec (11 total), local deploy verified |
 | `packages/core` — provider/attestation types, tiers, digest reference + vectors | **T3 done** — 9 TS vector tests + Go companion test in aigg-src both green |
 | `packages/broker` — `autoInfBrokerFromRpc` (moved from kit npc-agent) | **T4 done** — kit re-exports; npc-agent + gamekit smokes green; `requireVerified` hard-fails without a quote verifier (T5) |
 | `packages/verify` — attestation client, tamper matrix, imageHash→tier allowlist, DCAP verifiers | **T5+T6 done** — browser-safe (guard-tested); `UNSAFE_acceptAnyQuote` rename; allowlist enforced in `verifyQuoteOnce` (unknown images fail closed to T1); DCAP behind the `QuoteVerifier` seam: dcap-qvl wasm (preferred, isomorphic) + `httpQuoteVerifier` fallback (Go service in aigg-src), real known-good/bad TDX quote fixtures |
-| `packages/voucher` — EIP-712 voucher client half | scaffold (T8) |
+| `packages/voucher` — EIP-712 voucher client half | **T8 done** — domain/types byte-aligned with `InferenceLedger.sol` (typehash + digest asserted against the contract), `signVoucher` canonical low-s output, high-s `normalizeSignature`, nonce-bitmap helpers (`findFreeNonce`); TS-signed vouchers settle on-chain in the hardhat round-trip spec |
 | `conformance/` — hermetic harness + grading CLI | **T7 done = V1** — local chain → legacy-tx deploy → fake-dsn → mock-dstack quote → stub-gateway (headers + SSE/trailers) → full matrix green incl. tamper cases + dcap column; `ai3-conformance --hermetic` or `--rpc/--registry/--dsn/--endpoint` for live pairs (T9 adds the Phase-B voucher group) |
 
 ```bash
@@ -33,7 +33,7 @@ pnpm -r build                                  # T1 gate
 pnpm -r test                                   # core vectors + verify tamper/allowlist/DCAP + broker + 7 contract specs
                                                # + the hermetic conformance matrix (milestone V1 gate)
 pnpm --filter @ai3-inference/conformance hermetic   # the same matrix, as the CLI
-pnpm --filter @ai3-inference/contracts test    # T2 gate only: 7 specs
+pnpm --filter @ai3-inference/contracts test    # T2+T8 gates: 11 specs (incl. TS↔chain voucher round-trip; build first)
 # local deploy check (second terminal: pnpm --filter @ai3-inference/contracts node)
 pnpm --filter @ai3-inference/contracts deploy:local
 ```
