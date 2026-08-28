@@ -8,7 +8,7 @@
  * with one call — consistent platform access across all games.
  */
 export { SharedWorld } from './shared-world';
-export type { SharedWorldOptions, NpcRecord, NpcSummary, TalkResult, OnchainBalanceProvider } from './shared-world';
+export type { SharedWorldOptions, NpcRecord, NpcSummary, TalkResult, OnchainBalanceProvider, TrajectoryEntry } from './shared-world';
 
 // Deterministic world STF + AI oracle boundary (sequencer / Autonomys-Domain ready).
 export { FairTick } from './fair';
