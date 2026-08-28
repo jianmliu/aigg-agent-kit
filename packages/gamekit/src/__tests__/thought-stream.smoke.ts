@@ -102,10 +102,24 @@ async function main() {
     const lisObs = obs(await world.trajectory(listener), 'overhear');
     assert.equal(lisObs.length, 1, '同房听众轨迹有 1 条 overhear 观察');
     assert.equal(lisObs[0].from, speaker, 'overhear 观察记下说话者');
-    // 旁听听见的是【说出口的那句】= NPC 的回话(said: oracleOut.say),不是玩家的原话。
-    assert.ok(lisObs[0].text.includes(REPLY), 'overhear 观察含说出口的那句(NPC 的回话)');
-    assert.ok(lisObs[0].text.includes('S_郎中'), 'overhear 观察记下说话者名字');
-    console.log('  ✓ 注入点②:旁听观察落进听众自己的流(from=说话者)');
+    // 旁听承载【整段来回】:玩家先说的 + NPC 答的 —— 同房的人两边都听得见(一次 overhear,
+    // 不跑两趟:后者会把 remember 与插话的成本上限翻倍)。
+    assert.ok(lisObs[0].text.includes(LINE), 'overhear 观察含玩家先说的那句');
+    assert.ok(lisObs[0].text.includes(REPLY), 'overhear 观察含 NPC 答的那句');
+    assert.ok(lisObs[0].text.includes('S_郎中') && lisObs[0].text.includes('游侠'), 'overhear 观察记下双方');
+    console.log('  ✓ 注入点②:旁听观察落进听众自己的流,承载整段来回(玩家的话也被听见)');
+
+    // 对话者(玩家/来访 NPC)进 match:听见某人兜售的说辞 → 能对【那个人】起警惕
+    // 只数【旁听】那条(overheard_ 前缀)—— 听众另有一条来自它自己插话对话的 episodic,
+    // 那是既有 talk() 行为,与旁听成本无关。
+    const lisRemember = calls.filter((c) => c.path === '/memory/remember'
+      && c.body.corpus === corpusOf(listener)
+      && /^overheard_/.test(String((c.body.payload as any)?.slug)));
+    assert.equal(lisRemember.length, 1, '旁听仍只产生 1 条亲历 episodic(承载整段来回,成本上限不变)');
+    const m = (lisRemember[0].body.payload as any).match as string[];
+    assert.ok(m.includes('游侠'), 'match 含对话者 —— discernment 可凭这段亲历对说话的那个人起警惕');
+    assert.ok((lisRemember[0].body.payload as any).description.includes(LINE), 'episodic 描述含玩家原话');
+    console.log('  ✓ 对话者进 match + 描述含其原话(听见谁在兜售,就能对谁生疑)');
 
     // ---- 3:作用域不串味 ----
     // 玩家那句是对【说话者】说的 —— 绝不该出现在听众流里。
