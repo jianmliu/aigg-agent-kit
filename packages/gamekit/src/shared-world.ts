@@ -47,6 +47,8 @@ const silverKey = (id: string) => `npc:${id}:silver`;   // off-chain 游戏货�
 const combatKey = (id: string) => `npc:${id}:combat`;   // off-chain 战斗属性存档(不带 ONCHAIN,随世界层隔离)
 const diaryKey = (id: string) => `npc:${id}:diary`;   // off-chain 夜记 log (narrative, not a typed memory unit)
 const logKey = (id: string) => `npc:${id}:log`;       // off-chain 3rd-person system log (debug: say/move/pitch/dream)
+const trajKey = (id: string) => `npc:${id}:traj`;     // off-chain 1st-person thought stream (persistent-thought-stream.md §4.1)
+const TRAJ_CAP = 200;                                 // 轨迹保留最近 N 条(与系统日志同量级;P4 的衰减摘要接管更久远的部分)
 const riceKey = (id: string) => `npc:${id}:rice`;
 const needsKey = (id: string) => `npc:${id}:needs`;   // off-chain 易变态(同 diary/log,不带 ONCHAIN)
 const artifactKey = (id: string) => `artifact:${id}`;          // onchain-ready durable record
@@ -261,6 +263,21 @@ export interface SharedWorldOptions {
    */
   eatAxis?: string;
 }
+
+/**
+ * One entry in an NPC's FIRST-PERSON thought stream (persistent-thought-stream.md §4.1).
+ * Distinct from `logKey`'s third-person system log (an objective dev transcript of what the
+ * NPC *did*): this is the subjective stream of what happened *to* it and what it thought —
+ * the thing an LLM turn reads as "my recent life". One append-only stream per NPC.
+ *
+ * P1 writes `observation` only (talk / overhear). `thought` lands in P3 (GCC-paced spontaneous
+ * thinking), `action` in P5 (the ActionRegistry closes the loop) — see the spec's phase table.
+ */
+export type TrajectoryEntry =
+  | { ts: number; kind: 'observation'; src: 'talk' | 'overhear' | 'needs' | 'fair' | 'arrive' | 'system';
+      text: string; from?: string; room?: string }
+  | { ts: number; kind: 'thought'; text: string; tier: string; costGcc: number }
+  | { ts: number; kind: 'action'; action: string; args?: unknown };
 
 export class SharedWorld {
   private readonly store: Store;
@@ -719,6 +736,26 @@ export class SharedWorld {
       prev.push({ ts: Date.now(), kind, text });
       await this.store.set(W, this.wkey(logKey(npcId)), prev.slice(-200));
     } catch { /* logging never blocks gameplay */ }
+  }
+
+  /**
+   * Append one entry to the NPC's first-person thought stream (§4.1). Same capped-list
+   * pattern as the 夜记/系统日志 above, but a DIFFERENT axis: observations that landed on
+   * this NPC + (later) its own thoughts. A pure store write — no LLM, no memory service,
+   * no ledger — so it is cheap enough to record unconditionally.
+   */
+  private async appendTrajectory(npcId: string, entry: TrajectoryEntry): Promise<void> {
+    try {
+      const prev = (await this.getScoped<TrajectoryEntry[]>(trajKey(npcId))) ?? [];
+      prev.push(entry);
+      await this.store.set(W, this.wkey(trajKey(npcId)), prev.slice(-TRAJ_CAP));
+    } catch { /* the stream never blocks gameplay (same contract as logEvent) */ }
+  }
+
+  /** Read an NPC's thought stream, oldest→newest; `limit` takes the most RECENT n. */
+  async trajectory(npcId: string, limit?: number): Promise<TrajectoryEntry[]> {
+    const all = (await this.getScoped<TrajectoryEntry[]>(trajKey(npcId))) ?? [];
+    return typeof limit === 'number' && limit >= 0 ? all.slice(-limit) : all;
   }
 
   /**
@@ -1471,6 +1508,14 @@ export class SharedWorld {
     const rec = await this.getNpc(input.npcId);
     if (!rec) throw new Error(`no npc ${input.npcId}`);
 
+    // 轨迹(§4.2 注入点①):对方说的话先落进【本 NPC 自己的】思绪流 —— talk() 由此从
+    // 「会话入口」降级为「观察注入点」(Headlong:人的消息不开启会话,只是流里的一个观察)。
+    // 纯 store 写,不依赖记忆服务/LLM,故放在最前:即便后续 oracle 失败,"它对我说过话"也已记下。
+    await this.appendTrajectory(input.npcId, {
+      ts: Date.now(), kind: 'observation', src: 'talk',
+      text: input.text, from: input.visitorId, room: rec.room,
+    });
+
     // --- memory: select relevant units before LLM call (online, cheap) -------
     let memoryBundle: string | undefined;
     if (this.memory) {
@@ -1666,7 +1711,7 @@ export class SharedWorld {
       void this.overhear({
         speakerId: input.npcId, speakerName: rec.name, room: rec.room,
         interlocutorId: input.visitorId, interlocutorName: interlocutor.name,
-        said: oracleOut.say, outcome: input.outcome, now,
+        said: oracleOut.say, heard: input.text, outcome: input.outcome, now,
       }).catch(() => { /* 教训C:任何旁听错误绝不影响 talk 返回 */ });
     }
 
@@ -1692,7 +1737,12 @@ export class SharedWorld {
   private async overhear(input: {
     speakerId: string; speakerName: string; room: string;
     interlocutorId: string; interlocutorName: string;
-    said: string; outcome?: 'loss' | 'gain' | 'neutral'; now: number;
+    /** 说话者说出口的那句(NPC 的回话)。 */
+    said: string;
+    /** 对话者【先说的】那句(玩家/来访 NPC 的原话)。同房的人两边都听得见 —— 一次旁听
+     *  承载整段来回,而不是跑两趟 overhear:后者会把 remember 与插话的成本上限翻倍(教训B)。 */
+    heard?: string;
+    outcome?: 'loss' | 'gain' | 'neutral'; now: number;
   }): Promise<void> {
     if (!this.memory) return;
 
@@ -1721,7 +1771,21 @@ export class SharedWorld {
     );
 
     // 步骤3-5:并发处理(避免串行 await 拖慢后台);插话授权用预算好的 interjectIds 判定。
+    // 听众耳朵里的「一段来回」:对话者先说的 + 说话者答的。heard 缺省时退回只有回话的旧格式。
+    const exchange = input.heard
+      ? `${input.interlocutorName} 对 ${input.speakerName} 说:「${input.heard}」;${input.speakerName} 答:「${input.said}」`
+      : `${input.speakerName} 对 ${input.interlocutorName} 说:「${input.said}」`;
+
     await Promise.all(gated.map(async ({ o, starving, rich }) => {
+      // 轨迹(§4.2 注入点②):旁听到的话落进【听众自己】的思绪流。
+      // 注意与下面的 starving 闸相反 —— 轨迹是纯 store 写(零 LLM / 零记忆服务 / 不动账),
+      // 故饥饿者也记录:它昏睡时世界照常发生,醒来后应当知道自己错过了什么(§4.3 dormant 语义)。
+      await this.appendTrajectory(o.id, {
+        ts: input.now || Date.now(), kind: 'observation', src: 'overhear',
+        text: exchange,
+        from: input.speakerId, room: input.room,
+      });
+
       if (starving) return; // 饥饿者整段跳过:不 remember、不插话、不记日志
 
       // 步骤3:亲历级 episodic remember 进【听众自己】的 corpus(零成本、离账本、fire-and-forget)。
@@ -1733,8 +1797,10 @@ export class SharedWorld {
         slug: safe(`overheard_${input.speakerId}_${input.now}`),
         name: `旁听 ${input.speakerName}`,
         kind: 'episodic',
-        description: `${input.speakerName} 对 ${input.interlocutorName} 说：「${input.said}」（${o.name} 在旁亲耳听到）`,
-        match: [input.speakerId, input.speakerName, input.interlocutorName, 'overheard', '旁听',
+        description: `${exchange}（${o.name} 在旁亲耳听到）`,
+        // 对话者也进 match:既然它说的话被听见了,discernment 就该能凭这段亲历对【它】起警惕
+        // (听见某人兜售的说辞 → 对那个人生疑),而不只是对回话的一方。
+        match: [input.speakerId, input.speakerName, input.interlocutorId, input.interlocutorName, 'overheard', '旁听',
           ...(input.outcome === 'loss' ? ['trap'] : [])],
         // 旁观所得 → 仍记说话者为来源,但这是【亲历】(o 亲耳听到),非二手街谈:不设 asserted_by≠self,
         // 让 discernment 的 faculty 轴(asserted_by:'self')命中 → 亲历级警惕,不依赖二手 gossip。
@@ -1752,7 +1818,7 @@ export class SharedWorld {
       if (rich && interjectIds.has(o.id)) {
         await this.talk({
           npcId: o.id, visitorId: input.speakerId,
-          text: `〔旁听插话〕${input.said}`, sudo: false, _noOverhear: true,
+          text: `〔旁听插话〕${exchange}`, sudo: false, _noOverhear: true,
         }).catch(() => { /* 插话失败绝不影响其它听众的 remember */ });
       }
     }));
