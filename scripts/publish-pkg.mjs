@@ -98,8 +98,10 @@ const tscBin = createRequire(join(root, 'package.json')).resolve('typescript/bin
 // declarations for the shipped sources only — tests are neither published nor
 // required to typecheck under the package's (possibly stricter) settings
 const declTsconfig = join(stage, 'tsconfig.decl.json');
+const pkgTsconfig = join(pkgDir, 'tsconfig.json');
+const extendsFrom = existsSync(pkgTsconfig) ? pkgTsconfig : existsSync(baseTsconfig) ? baseTsconfig : undefined;
 writeFileSync(declTsconfig, JSON.stringify({
-  extends: join(pkgDir, 'tsconfig.json'),
+  ...(extendsFrom ? { extends: extendsFrom } : {}),
   include: [join(srcRoot, '**/*')],
   exclude: [join(srcRoot, '**/__tests__/**'), join(srcRoot, '**/*.test.ts'), join(srcRoot, '**/*.smoke.ts')]
 }));
