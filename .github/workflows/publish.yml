@@ -1,0 +1,70 @@
+# Publish one kit package to GitHub Packages as @jianmliu/<name>.
+#
+#   git tag npc-agent@0.1.0          && git push origin npc-agent@0.1.0          # packages/npc-agent
+#   git tag ai3-inference-core@0.0.1 && git push origin ai3-inference-core@0.0.1 # ai3-inference/packages/core
+#
+# The tag is <published name without @jianmliu/>@<version>; it must match that
+# package.json's version. The package's own test:* scripts run first. Consumers
+# alias it back to the workspace name — see scripts/publish-pkg.mjs.
+name: publish
+
+on:
+  push:
+    tags: ['*@*']
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      # kit deliberately tracks no lockfile (see .gitignore). Every dependency stays
+      # external in the published bundle, so an unpinned install only affects the
+      # build tools (esbuild / tsc), not what consumers get.
+      - run: pnpm install --no-frozen-lockfile
+
+      - name: Resolve package from tag
+        id: pkg
+        run: |
+          name="${GITHUB_REF_NAME%@*}"
+          version="${GITHUB_REF_NAME##*@}"
+          # tag text ends up in paths/commands below — accept only plain names + semver
+          [[ "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "::error::bad package name in tag"; exit 1; }
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::bad version in tag"; exit 1; }
+          case "$name" in
+            ai3-inference-*) dir="ai3-inference/packages/${name#ai3-inference-}" ;;
+            *)               dir="packages/$name" ;;
+          esac
+          [ -f "$dir/package.json" ] || { echo "::error::no package at $dir"; exit 1; }
+          actual="$(node -p "require('./$dir/package.json').version")"
+          [ "$actual" = "$version" ] || { echo "::error::tag says $version, $dir/package.json says $actual"; exit 1; }
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+
+      - name: Test
+        run: |
+          node -e '
+            const { spawnSync } = require("node:child_process");
+            const dir = process.env.PKG_DIR;
+            const scripts = Object.keys(require(`./${dir}/package.json`).scripts ?? {}).filter((s) => s.startsWith("test:"));
+            for (const s of scripts) {
+              const r = spawnSync("pnpm", ["run", s], { cwd: dir, stdio: "inherit" });
+              if (r.status !== 0) process.exit(r.status ?? 1);
+            }
+            console.log(`${scripts.length} test script(s) passed`);
+          '
+        env:
+          PKG_DIR: ${{ steps.pkg.outputs.dir }}
+
+      - name: Publish
+        run: node scripts/publish-pkg.mjs "$PKG_DIR" --publish
+        env:
+          PKG_DIR: ${{ steps.pkg.outputs.dir }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

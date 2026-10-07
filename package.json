@@ -3,5 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "description": "AI NPC agent runtime + on-chain economy kit (engine-neutral, reusable). Lives inside onchainpal today; designed to be split into its own repo (git subtree split --prefix=kit) and consumed via git submodule.",
-  "type": "module"
+  "type": "module",
+  "packageManager": "pnpm@8.15.8",
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "typescript": "5.9.3",
+    "tsx": "^4.21.0",
+    "@types/node": "^22.8.4"
+  }
 }
