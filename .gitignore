@@ -18,3 +18,5 @@ contracts/**/lib/
 .env.*
 !.env.example
 .DS_Store
+# publish-pkg staging dir
+.publish/
