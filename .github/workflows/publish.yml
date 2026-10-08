@@ -22,10 +22,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+      # no `cache: pnpm` — setup-node's pnpm cache needs a root lockfile, which kit
+      # deliberately doesn't track (it would fail the job before install)
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
       # kit deliberately tracks no lockfile (see .gitignore). Every dependency stays
       # external in the published bundle, so an unpinned install only affects the
       # build tools (esbuild / tsc), not what consumers get.
