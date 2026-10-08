@@ -108,11 +108,25 @@ writeFileSync(declTsconfig, JSON.stringify({
 const tsc = spawnSync(process.execPath, [tscBin, '-p', declTsconfig,
   '--noEmit', 'false', '--declaration', '--emitDeclarationOnly', '--declarationMap', 'false',
   '--module', 'esnext', '--moduleResolution', 'bundler',
-  '--rootDir', srcRoot, '--outDir', join(stage, 'types')], { cwd: pkgDir, encoding: 'utf8' });
+  '--outDir', join(stage, 'types-all')], { cwd: pkgDir, encoding: 'utf8' });
 if (tsc.status !== 0) {
   console.error(tsc.stdout, tsc.stderr);
   process.exit(1);
 }
+// No --rootDir: a base config's `paths` may map workspace deps to their TS source
+// (e.g. @aigg/npc-agent → kit/…/src), which tsc then compiles too and lays out under
+// their common ancestor. Keep only this package's subtree — its .d.ts files still
+// import those deps by bare specifier, which is what consumers resolve.
+const typesAll = join(stage, 'types-all');
+const probe = relative(srcRoot, Object.values(entries)[0]).replace(/\.ts$/, '.d.ts');
+let emitted;
+for (let anc = srcRoot; ; anc = dirname(anc)) {
+  const cand = join(typesAll, relative(anc, srcRoot));
+  if (existsSync(join(cand, probe))) { emitted = cand; break; }
+  if (dirname(anc) === anc) throw new Error(`declarations for ${probe} not found under ${typesAll}`);
+}
+cpSync(emitted, join(stage, 'types'), { recursive: true });
+rmSync(typesAll, { recursive: true, force: true });
 rmSync(join(stage, 'types', '__tests__'), { recursive: true, force: true });
 rmSync(declTsconfig);
 addJsExtensions(join(stage, 'types'));
