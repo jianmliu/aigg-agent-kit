@@ -2,7 +2,7 @@
 /**
  * publish-pkg — build a workspace package and publish it to GitHub Packages.
  *
- * Repo-agnostic: the same file runs in onchainpal and in aigg-agent-kit. It finds
+ * Repo-agnostic: the same file runs in aigg-world and in aigg-agent-kit. It finds
  * the repo root from its own location, the repo URL from `git remote`, and the
  * workspace packages from pnpm-workspace.yaml.
  *
